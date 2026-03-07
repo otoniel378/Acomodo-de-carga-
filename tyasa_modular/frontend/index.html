@@ -1,0 +1,765 @@
+<!DOCTYPE html><html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>TYASA · Sistema de Acomodo de Carga</title>
+    <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+<div class="app">
+    <!-- ==================== LEFT PANEL ==================== -->
+    <div class="panel">
+        <div class="panel-header">
+            <div class="header-logo-container">
+                <img src="../imagenes/logotyasacar.png" alt="TYASA" class="header-logo" onerror="this.style.display='none'">
+                <h2 class="header-title">Acomodo<br>de Carga</h2>
+            </div>
+            <div class="header-right">
+                <button class="theme-toggle" id="themeToggle" title="Cambiar tema">
+                    <span class="theme-toggle-icon" id="themeIcon">🌙</span>
+                    <span id="themeText">Oscuro</span>
+                </button>
+                <div class="badge" id="connBadge"><span class="dot"></span><span id="connText">...</span></div>
+            </div>
+        </div>
+        <div class="panel-body">
+            <button class="btn btn-primary w-full mb-3" id="btnCrearCarga">+ Crear Nueva Carga</button>
+            
+            <!-- Transporte -->
+            <div class="card">
+                <div class="card-title">🚛 Transporte</div>
+                <div class="flex items-end gap-2">
+                    <div style="flex:1">
+                        <label>Tipo de Camión</label>
+                        <select id="truckSelect"><option value="">— Selecciona —</option></select>
+                    </div>
+                    <div style="width:70px;">
+                        <label>Cantidad</label>
+                        <input type="number" id="truckQuantity" min="1" max="5" value="1" style="text-align:center;">
+                    </div>
+                    <button class="btn btn-secondary btn-sm" id="btnEditTruck" title="Editar dimensiones">✏️</button>
+                    <button class="btn btn-secondary btn-sm" id="btnNewTruck" title="Agregar camión">+</button>
+                </div>
+                <div id="truckInfo" class="mt-2" style="font-size:10px;color:var(--muted);">
+                    Selecciona un camión para ver sus dimensiones
+                </div>
+            </div>
+            
+            <!-- Buscar y Agregar Material -->
+            <div class="card">
+                <div class="flex justify-between items-end mb-2">
+                    <span class="card-title" style="margin:0">📦 Agregar Material</span>
+                    <div class="flex gap-1">
+                        <button class="btn btn-secondary btn-sm" id="btnBusquedaMultiple" title="Buscar varios materiales">📋 Lista</button>
+                        <button class="btn btn-secondary btn-sm" id="btnEditMaterial" title="Editar material" style="display:none;">✏️ Editar</button>
+                        <button class="btn btn-secondary btn-sm" id="btnNewMaterial" title="Crear nuevo material">+ Nuevo</button>
+                    </div>
+                </div>
+                
+                <div class="mb-2">
+                    <label>Buscar por Clave SAP</label>
+                    <div class="flex">
+                        <input id="sapCode" placeholder="Ej: 10001234" style="flex:1">
+                        <button class="btn btn-primary btn-sm" id="btnBuscarSAP">🔍</button>
+                    </div>
+                </div>
+                
+                <!-- Info del producto encontrado -->
+                <div id="productBox" class="product-info" style="display:none;"></div>
+                
+                <!-- Dimensiones del paquete (editables) -->
+                <div id="dimensionsSection" style="display:none;" class="mt-2">
+                    <label style="font-size:11px;color:var(--muted);margin-bottom:4px;display:block;">📐 DIMENSIONES DEL PAQUETE (editables)</label>
+                    <div class="grid-3 mb-2">
+                        <div>
+                            <label>Largo (cm)</label>
+                            <input id="pkgLargo" type="number" step="0.1" min="1" placeholder="600">
+                        </div>
+                        <div>
+                            <label>Ancho (cm)</label>
+                            <input id="pkgAncho" type="number" step="0.1" min="1" placeholder="30">
+                        </div>
+                        <div>
+                            <label>Alto (cm)</label>
+                            <input id="pkgAlto" type="number" step="0.1" min="1" placeholder="15">
+                        </div>
+                    </div>
+                    <!-- Checkbox Diferido -->
+                    <div class="mt-2" style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="chkDiferido" style="width: 20px; height: 20px; cursor: pointer;">
+                        <label for="chkDiferido" style="cursor: pointer; color: #ff6b6b; font-weight: bold;">
+                            📦 Diferido (va al final del acomodo, última cama)
+                        </label>
+                    </div>
+                </div>
+                
+                <!-- Peso y Toneladas a enviar -->
+                <div id="tonsSection" style="display:none;" class="mt-2">
+                    <div class="grid-2 mb-2">
+                        <div>
+                            <label>Peso/Paquete (ton)</label>
+                            <input id="pesoPaquete" type="number" step="0.001" min="0.001" placeholder="0.605">
+                        </div>
+                        <div>
+                            <label>Toneladas a Enviar</label>
+                            <input id="tons" type="number" step="0.1" min="0.1" placeholder="12.5">
+                        </div>
+                    </div>
+                    <button class="btn btn-success w-full" id="btnAgregarMat">+ Agregar Material</button>
+                    <div id="calcPreview" class="calc-preview mt-2" style="display:none;"></div>
+                </div>
+            </div>
+            
+            <!-- Aditamentos -->
+            <div class="card">
+                <div class="card-title">⚙️ Aditamentos (Peso Extra)</div>
+                <div class="grid-3 items-end">
+                    <div><label>Nombre</label><input id="aditName" placeholder="Polín"></div>
+                    <div><label>Peso (kg)</label><input id="aditPeso" type="number" placeholder="25"></div>
+                    <button class="btn btn-secondary btn-sm" id="btnAddAdit">+</button>
+                </div>
+            </div>
+            
+            <div class="divider"></div>
+            
+            <!-- Actions -->
+            <div style="display:flex;flex-direction:column;gap:8px;">
+                <button class="btn btn-success btn-lg w-full" id="btnGuardar">💾 Guardar Carga</button>
+                
+                <!-- Selector de modo de optimización -->
+                <div class="optimize-mode-selector">
+                    <label style="font-size:11px;color:var(--muted);margin-bottom:4px;display:block;">MODO DE OPTIMIZACIÓN:</label>
+                    <div class="optimize-modes">
+                        <button class="optimize-mode-btn active" id="btnMode1" data-mode="opt1" title="Con prioridad de almacén">
+                            Optimización 1
+                        </button>
+                        <button class="optimize-mode-btn" id="btnMode2" data-mode="opt2" title="Frontal primero (6m) + prioridad almacén">
+                            Optimización 2
+                        </button>
+                    </div>
+                    <button class="btn btn-sm btn-outline w-full mt-2" id="btnConfigPriority" style="font-size:11px;">
+                        ⚙️ Configurar Prioridad de Almacenes
+                    </button>
+                </div>
+                
+                <!-- Configuración de espaciado entre camas -->
+                <div class="spacing-config" style="background:var(--surface);border-radius:6px;padding:8px;border:1px solid var(--border);">
+                    <label style="font-size:10px;color:var(--muted);margin-bottom:6px;display:block;">📏 ESPACIADO ENTRE CAMAS (cm):</label>
+                    <div class="grid-2" style="gap:8px;">
+                        <div>
+                            <label style="font-size:9px;color:var(--muted);">Suelo → Cama 1</label>
+                            <input type="number" id="gapFloorToBed" value="0" min="0" max="100" step="1" class="input-sm" style="width:100%;text-align:center;">
+                        </div>
+                        <div>
+                            <label style="font-size:9px;color:var(--muted);">Entre camas</label>
+                            <input type="number" id="gapBetweenBeds" value="10" min="0" max="100" step="1" class="input-sm" style="width:100%;text-align:center;">
+                        </div>
+                    </div>
+                    <div style="margin-top:6px;">
+                        <label style="font-size:10px;color:var(--muted);display:flex;align-items:center;gap:6px;cursor:pointer;">
+                            <input type="checkbox" id="centerPackages" checked style="width:14px;height:14px;">
+                            Centrar paquetes en el ancho
+                        </label>
+                    </div>
+                </div>
+                
+                <button class="btn btn-primary btn-lg w-full" id="btnOptimizar">⚡ Optimizar Acomodo</button>
+                <div class="grid-2">
+                    <button class="btn btn-secondary" id="btnConsultar">📋 Consultar</button>
+                    <button class="btn btn-secondary" id="btnExportPDF">📄 PDF</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ==================== CENTER PANEL ==================== -->
+    <div class="panel center-panel">
+        <!-- 3D Viewer (altura fija) -->
+        <div class="viewer-3d" id="viewer3d">
+            <div class="hud">
+                <div class="hud-box">
+                    <div class="hud-row"><span>Carga</span><b id="hudCarga">—</b></div>
+                    <div class="hud-row"><span>Camión</span><b id="hudTruck">—</b></div>
+                </div>
+                <div class="hud-box">
+                    <div class="hud-row"><span>Estado</span><b id="hudStatus">DRAFT</b></div>
+                    <div class="hud-row"><span>Toneladas</span><b id="hudTons">0.0 t</b></div>
+                    <div class="hud-row"><span>Paquetes</span><b id="hudPkgs">0</b></div>
+                </div>
+            </div>
+            <div class="status-badge">
+                <div class="badge" id="loadStatusBadge"><span class="dot"></span><span id="loadStatusText">Sin carga</span></div>
+            </div>
+            <div class="viewer-controls">
+                <button class="btn btn-sm" id="btnResetView">🔄 Reset</button>
+                <button class="btn btn-sm" id="btnTopView">⬆️ Arriba</button>
+                <button class="btn btn-sm" id="btnFrontView">➡️ Frente</button>
+                <button class="btn btn-sm" id="btnSideView">📐 Lado</button>
+            </div>
+        </div>
+        
+        <!-- Área scrolleable -->
+        <div class="center-scroll-area">
+            <!-- Summary -->
+            <div class="summary-grid">
+                <div class="summary-item"><div class="value" id="sumMats">0</div><div class="label">Materiales</div></div>
+                <div class="summary-item"><div class="value" id="sumPkgs">0</div><div class="label">Paquetes</div></div>
+                <div class="summary-item"><div class="value" id="sumTons">0.0</div><div class="label">Toneladas</div></div>
+                <div class="summary-item"><div class="value" id="sumBeds">0</div><div class="label">Camas</div></div>
+                <div class="summary-item"><div class="value" id="sumHeight">0.0m</div><div class="label">Altura Total</div></div>
+                <div class="summary-item" id="notPlacedItem" style="cursor:pointer;" onclick="toggleNotPlacedList()">
+                    <div class="value" id="sumNotPlaced" style="color:#ef4444;">0</div>
+                    <div class="label">Sin colocar</div>
+                </div>
+            </div>
+            
+            <!-- Lista de materiales sin colocar (oculta por defecto) -->
+            <div id="notPlacedList" style="display:none; background:var(--bg-secondary); border:1px solid #ef4444; border-radius:8px; padding:10px; margin-bottom:10px;">
+                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:8px;">
+                    <span style="font-weight:bold; color:#ef4444;">⚠️ Paquetes sin colocar</span>
+                    <button class="btn btn-sm" onclick="toggleNotPlacedList()" style="padding:2px 8px;">✕</button>
+                </div>
+                <div id="notPlacedContainer" style="max-height:150px; overflow-y:auto; font-size:12px;"></div>
+            </div>
+            
+            <!-- Beds Tabs -->
+            <div class="beds-tabs" id="bedsTabs"></div>
+            
+            <!-- 2D Canvas -->
+            <div class="canvas-2d-wrap">
+                <div class="canvas-header">
+                    <span class="canvas-title" id="canvas2dTitle">Vista 2D - Selecciona una cama</span>
+                </div>
+                <canvas id="canvas2d" width="700" height="200"></canvas>
+            </div>
+            
+            <!-- Lista de materiales de la cama seleccionada -->
+            <div class="bed-materials-list" id="bedMaterialsList">
+                <div class="bed-materials-header">
+                    <span class="bed-materials-title">📦 Materiales en esta cama</span>
+                    <div style="display:flex;gap:8px;align-items:center;">
+                        <button class="btn btn-sm" id="btnAddNote" title="Agregar nota a esta cama">📝 Nota</button>
+                        <span class="bed-materials-count" id="bedMaterialsCount">0 paquetes</span>
+                    </div>
+                </div>
+                <!-- Sección de nota de la cama -->
+                <div id="bedNoteSection" class="bed-note-section" style="display:none;">
+                    <textarea id="bedNoteText" placeholder="Escribe una nota para esta cama..." rows="4" style="width:100%;min-height:80px;resize:vertical;"></textarea>
+                    <div class="bed-note-actions">
+                        <button class="btn btn-sm btn-success" id="btnSaveNote">💾 Guardar</button>
+                        <button class="btn btn-sm btn-secondary" id="btnCancelNote">✕</button>
+                    </div>
+                </div>
+                <div id="bedNoteDisplay" class="bed-note-display" style="display:none;">
+                    <span id="bedNoteContent"></span>
+                    <button class="btn-edit-note" id="btnEditNote">✏️</button>
+                </div>
+                <div class="bed-materials-table-wrap">
+                    <table class="bed-materials-table">
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>SAP</th>
+                                <th>Descripción</th>
+                                <th>Tons</th>
+                                <th>Calibre</th>
+                                <th>Almacén</th>
+                            </tr>
+                        </thead>
+                        <tbody id="bedMaterialsBody"></tbody>
+                    </table>
+                </div>
+            </div>
+        </div><!-- fin center-scroll-area -->
+    </div>
+
+    <!-- ==================== RIGHT PANEL ==================== -->
+    <div class="panel">
+        <div class="panel-header">
+            <h2>📋 Resumen de Carga</h2>
+            <div class="badge">ID: <span id="loadIdBadge">—</span></div>
+        </div>
+        <div class="panel-body">
+            <!-- Modo -->
+            <div class="card">
+                <div class="card-title">🎯 Modo de Acomodo</div>
+                <div class="mode-toggle">
+                    <button class="mode-btn active" id="btnModeOpt">⚡ Optimizado</button>
+                    <button class="mode-btn" id="btnModeMan">✋ Manual</button>
+                </div>
+            </div>
+            
+            <!-- Lista de Materiales a Cargar -->
+            <div class="card">
+                <div class="flex justify-between items-end mb-2">
+                    <span class="card-title" style="margin:0;">📦 Materiales a Cargar</span>
+                    <span class="badge" id="matCountBadge">0</span>
+                </div>
+                <div class="table-wrap" style="max-height:200px;">
+                    <table>
+                        <thead>
+                            <tr>
+                                <th>SAP</th>
+                                <th>Descripción</th>
+                                <th>Tons</th>
+                                <th>Cal.</th>
+                                <th>Almacén</th>
+                                <th></th>
+                            </tr>
+                        </thead>
+                        <tbody id="matTableBody"></tbody>
+                    </table>
+                </div>
+                <!-- Resumen de toneladas -->
+                <div id="tonsSummary" class="tons-summary mt-2" style="display:none;"></div>
+            </div>
+            
+            <!-- Aditamentos -->
+            <div class="card">
+                <div class="flex justify-between items-end mb-2">
+                    <span class="card-title" style="margin:0;">⚙️ Aditamentos</span>
+                    <span class="badge" id="aditCountBadge">0</span>
+                </div>
+                <div class="table-wrap" style="max-height:80px;">
+                    <table>
+                        <thead><tr><th>Nombre</th><th>Peso</th><th></th></tr></thead>
+                        <tbody id="aditTableBody"></tbody>
+                    </table>
+                </div>
+            </div>
+            
+            <!-- Distribución -->
+            <div class="card">
+                <div class="card-title">📊 Distribución por Camas</div>
+                <div id="bedsDistribution" class="dist-list">Ejecuta la optimización para ver la distribución</div>
+            </div>
+            
+            <!-- Panel de Edición Manual (oculto por defecto) -->
+            <div class="card" id="manualEditPanel" style="display:none;">
+                <div class="card-title">✏️ Editar Paquete</div>
+                <div id="selectedPkgInfo" class="selected-pkg-info mb-2">
+                    Selecciona paquetes en la vista 2D<br><small>Ctrl+click para selección múltiple<br>Arrastra para mover</small>
+                </div>
+                <!-- Botón para seleccionar todos los de la cama actual -->
+                <div id="selectAllSection" class="mb-2" style="display:none;">
+                    <button class="btn btn-secondary btn-sm w-full" id="btnSelectAllBed">☑ Seleccionar todos de esta cama</button>
+                </div>
+                <div id="manualEditControls" style="display:none;">
+                    <div class="grid-2 mb-2">
+                        <div>
+                            <label>Mover a Cama</label>
+                            <select id="editBedNum"></select>
+                        </div>
+                        <div>
+                            <label>Rotación (eje Y)</label>
+                            <button class="btn btn-secondary w-full" id="btnRotate" title="Rotar 90° sobre el eje Y">🔄 Rotar 90°</button>
+                        </div>
+                    </div>
+                    <!-- Intercambiar posición con otro paquete -->
+                    <div id="swapSection" class="mb-2">
+                        <label>Intercambiar con paquete #</label>
+                        <div class="flex gap-2">
+                            <select id="swapWithPackage" class="flex-1">
+                                <option value="">— Seleccionar —</option>
+                            </select>
+                            <button class="btn btn-secondary btn-sm" id="btnSwapPosition" title="Intercambiar posiciones">⇄ Cambiar</button>
+                        </div>
+                    </div>
+                    <!-- Selector de plana (solo para Full) -->
+                    <div id="platformSelector" class="mb-2" style="display:none;">
+                        <label>Mover a Plana</label>
+                        <select id="editPlatformNum" class="w-full">
+                            <option value="1">Plana 1</option>
+                            <option value="2">Plana 2</option>
+                        </select>
+                    </div>
+                    <div class="grid-2 mb-2">
+                        <button class="btn btn-success" id="btnApplyEdit">✓ Mover</button>
+                        <button class="btn btn-secondary" id="btnCancelEdit">✕ Deseleccionar</button>
+                    </div>
+                    <div id="editValidation" class="edit-validation mt-2" style="display:none;"></div>
+                </div>
+            </div>
+            
+            <!-- Capacidad -->
+            <div class="card">
+                <div class="card-title">⚖️ Capacidad de Carga</div>
+                <div style="font-size:11px;">
+                    <div class="flex justify-between mb-2"><span style="color:var(--muted)">Máx. permitido:</span><b id="maxPayload">— kg</b></div>
+                    <div class="flex justify-between mb-2"><span style="color:var(--muted)">Aditamentos:</span><b id="aditWeight">0 kg</b></div>
+                    <div class="flex justify-between mb-2"><span style="color:var(--muted)">Material:</span><b id="matWeight">0 kg</b></div>
+                    <div class="payload-bar"><div class="payload-bar-inner" id="payloadBar" style="width:0%"></div></div>
+                    <div class="flex justify-between"><span style="color:var(--muted)">Disponible:</span><b id="availablePayload" style="color:var(--green)">— kg</b></div>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== MODALS ==================== -->
+
+<!-- Modal Guardar Carga -->
+<div class="modal-backdrop" id="modalGuardar">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>💾 Guardar Carga</h3>
+            <button class="modal-close" onclick="closeModal('modalGuardar')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="info-box mb-3">
+                <small>💡 Todos los campos son opcionales. Puedes llenar los que necesites para identificar la carga.</small>
+            </div>
+            <div class="mb-2">
+                <label>Número de Viaje</label>
+                <input id="saveNumViaje" placeholder="Ej: VJ-2026-001">
+            </div>
+            <div class="mb-2">
+                <label>Número de Embarque</label>
+                <input id="saveNumEmbarque" placeholder="Ej: EMB-12345">
+            </div>
+            <div class="mb-2">
+                <label>Cliente</label>
+                <input id="saveCliente" placeholder="Ej: ACEROS DEL NORTE S.A.">
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('modalGuardar')">Cancelar</button>
+            <button class="btn btn-success" id="btnConfirmSave">💾 Guardar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Consulta -->
+<div class="modal-backdrop" id="modalConsulta">
+    <div class="modal" style="max-width:650px;">
+        <div class="modal-header">
+            <h3>📋 Consultar Cargas</h3>
+            <button class="modal-close" onclick="closeModal('modalConsulta')">×</button>
+        </div>
+        <div class="modal-body">
+            <!-- Tabs de búsqueda -->
+            <div class="search-tabs mb-3">
+                <button class="search-tab active" onclick="switchSearchTab('fecha')" id="tabFecha">📅 Por Fecha</button>
+                <button class="search-tab" onclick="switchSearchTab('viaje')" id="tabViaje">🚚 Por Viaje</button>
+                <button class="search-tab" onclick="switchSearchTab('embarque')" id="tabEmbarque">📦 Por Embarque</button>
+                <button class="search-tab" onclick="switchSearchTab('cliente')" id="tabCliente">👤 Por Cliente</button>
+            </div>
+            
+            <!-- Búsqueda por fecha -->
+            <div id="searchFecha" class="search-panel">
+                <div class="grid-3 mb-2">
+                    <div><label>Año</label><select id="qYear"></select></div>
+                    <div><label>Mes</label><select id="qMonth"></select></div>
+                    <div><label>Día</label><select id="qDay"></select></div>
+                </div>
+            </div>
+            
+            <!-- Búsqueda por viaje -->
+            <div id="searchViaje" class="search-panel" style="display:none;">
+                <div class="mb-2">
+                    <label>Número de Viaje</label>
+                    <input id="qViaje" placeholder="Ej: VJ-2026-001">
+                </div>
+            </div>
+            
+            <!-- Búsqueda por embarque -->
+            <div id="searchEmbarque" class="search-panel" style="display:none;">
+                <div class="mb-2">
+                    <label>Número de Embarque</label>
+                    <input id="qEmbarque" placeholder="Ej: EMB-12345">
+                </div>
+            </div>
+            
+            <!-- Búsqueda por cliente -->
+            <div id="searchCliente" class="search-panel" style="display:none;">
+                <div class="mb-2">
+                    <label>Nombre del Cliente</label>
+                    <input id="qCliente" placeholder="Ej: ACEROS DEL NORTE">
+                </div>
+            </div>
+            
+            <button class="btn btn-primary w-full mb-3" id="btnSearchLoads">🔍 Buscar</button>
+            
+            <label>Cargas encontradas</label>
+            <div class="loads-list" id="loadsList">
+                <div class="empty-msg">Realiza una búsqueda para ver las cargas</div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('modalConsulta')">Cerrar</button>
+            <button class="btn btn-success" id="btnLoadSelected">✓ Cargar Seleccionada</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nuevo Camión -->
+<div class="modal-backdrop" id="modalTruck">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>🚛 Nuevo Camión</h3>
+            <button class="modal-close" onclick="closeModal('modalTruck')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="grid-2 mb-2">
+                <div><label>ID (único)</label><input id="newTruckId" placeholder="TRAILER53"></div>
+                <div><label>Nombre</label><input id="newTruckName" placeholder="Tráiler 53 pies"></div>
+            </div>
+            <div class="grid-3 mb-2">
+                <div><label>Largo (mm)</label><input id="newTruckL" type="number" placeholder="16150"></div>
+                <div><label>Ancho (mm)</label><input id="newTruckW" type="number" placeholder="2440"></div>
+                <div><label>Alto (mm)</label><input id="newTruckH" type="number" placeholder="2740"></div>
+            </div>
+            <div class="grid-2">
+                <div><label>Número de Camas</label><input id="newTruckBeds" type="number" value="6" min="1" max="12"></div>
+                <div><label>Carga Máx (kg)</label><input id="newTruckKg" type="number" placeholder="28000"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('modalTruck')">Cancelar</button>
+            <button class="btn btn-success" id="btnCreateTruck">✓ Crear Camión</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Dimensiones Transporte -->
+<div class="modal-backdrop" id="modalEditTruck">
+    <div class="modal">
+        <div class="modal-header">
+            <h3>✏️ Editar Dimensiones del Transporte</h3>
+            <button class="modal-close" onclick="closeModal('modalEditTruck')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="mb-2" style="padding:10px;background:var(--surface);border-radius:6px;border-left:3px solid var(--blue);">
+                <div style="font-weight:600;color:var(--blue);font-size:14px;" id="editTruckName">—</div>
+                <div style="font-size:10px;color:var(--muted);margin-top:4px;">⚠️ Los cambios son temporales y solo aplican a esta carga</div>
+            </div>
+            <div class="grid-3 mb-2">
+                <div><label>Largo (mm)</label><input id="editTruckL" type="number"></div>
+                <div><label>Ancho (mm)</label><input id="editTruckW" type="number"></div>
+                <div><label>Alto (mm)</label><input id="editTruckH" type="number"></div>
+            </div>
+            <div class="grid-2">
+                <div><label>Número de Camas</label><input id="editTruckBeds" type="number" min="1" max="12"></div>
+                <div><label>Carga Máx (kg)</label><input id="editTruckKg" type="number"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('modalEditTruck')">Cancelar</button>
+            <button class="btn btn-primary" id="btnApplyTruckEdit">✓ Aplicar Cambios</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Nuevo Material -->
+<div class="modal-backdrop" id="modalMaterial">
+    <div class="modal" style="max-width:550px;">
+        <div class="modal-header">
+            <h3>📦 Nuevo Material</h3>
+            <button class="modal-close" onclick="closeModal('modalMaterial')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="grid-2 mb-2">
+                <div>
+                    <label>Producto</label>
+                    <input id="newMatType" placeholder="Ej: Perfil Tubular, Lamina..." list="matTypesList">
+                    <datalist id="matTypesList">
+                        <option value="Perfil Tubular Cuadrado">
+                        <option value="Perfil Tubular Rectangular">
+                        <option value="Lamina acanalada">
+                        <option value="Varilla corrugada">
+                        <option value="Angulo">
+                        <option value="Canal">
+                    </datalist>
+                </div>
+                <div><label>Clave SAP</label><input id="newMatSap" placeholder="10001234"></div>
+            </div>
+            <div class="mb-2">
+                <label>Descripción</label>
+                <input id="newMatDesc" placeholder="Perfil Tubular Cuadrado 1&quot; x 1&quot;">
+            </div>
+            <div class="grid-3 mb-2">
+                <div>
+                    <label>Almacén</label>
+                    <input id="newMatAlmacen" placeholder="Largos, Planos..." list="almacenList">
+                    <datalist id="almacenList">
+                        <option value="Largos">
+                        <option value="Planos">
+                        <option value="Galvanizados">
+                    </datalist>
+                </div>
+                <div>
+                    <label>Medida</label>
+                    <input id="newMatMedida" placeholder="1&quot; x 1&quot;">
+                </div>
+                <div>
+                    <label>Calibre</label>
+                    <input id="newMatCalibre" type="number" step="1" placeholder="14, 16, 18...">
+                </div>
+            </div>
+            <div class="grid-3 mb-2">
+                <div><label>Largo paq (cm)</label><input id="newMatLargo" type="number" step="0.01" placeholder="600" value="600"></div>
+                <div><label>Ancho paq (cm)</label><input id="newMatAncho" type="number" step="0.01" placeholder="30.48"></div>
+                <div><label>Alto paq (cm)</label><input id="newMatAlto" type="number" step="0.01" placeholder="15.24"></div>
+            </div>
+            <div class="mb-2">
+                <label>Peso por paquete (ton)</label>
+                <input id="newMatKgPaq" type="number" step="0.00001" placeholder="0.605">
+            </div>
+            <div class="info-box mt-2">
+                <small>💡 Este material se guardará en el archivo Excel de productos</small>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('modalMaterial')">Cancelar</button>
+            <button class="btn btn-success" id="btnCreateMaterial">✓ Crear Material</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Editar Material -->
+<div class="modal-backdrop" id="modalEditMaterial">
+    <div class="modal" style="max-width:550px;">
+        <div class="modal-header">
+            <h3>✏️ Editar Material</h3>
+            <button class="modal-close" onclick="closeModal('modalEditMaterial')">×</button>
+        </div>
+        <div class="modal-body">
+            <div class="grid-2 mb-2">
+                <div>
+                    <label>Producto</label>
+                    <input id="editMatType" placeholder="Tipo de producto" list="editMatTypesList">
+                    <datalist id="editMatTypesList">
+                        <option value="Perfil Tubular Cuadrado">
+                        <option value="Perfil Tubular Rectangular">
+                        <option value="Lamina acanalada">
+                        <option value="Varilla corrugada">
+                    </datalist>
+                </div>
+                <div>
+                    <label>Clave SAP</label>
+                    <input id="editMatSap" readonly style="background:var(--card);color:var(--muted);">
+                </div>
+            </div>
+            <div class="mb-2">
+                <label>Descripción</label>
+                <input id="editMatDesc" placeholder="Descripción del material">
+            </div>
+            <div class="grid-3 mb-2">
+                <div>
+                    <label>Almacén</label>
+                    <input id="editMatAlmacen" placeholder="Largos, Planos..." list="editAlmacenList">
+                    <datalist id="editAlmacenList">
+                        <option value="Largos">
+                        <option value="Planos">
+                        <option value="Galvanizados">
+                    </datalist>
+                </div>
+                <div>
+                    <label>Medida</label>
+                    <input id="editMatMedida" placeholder="1&quot; x 1&quot;">
+                </div>
+                <div>
+                    <label>Calibre</label>
+                    <input id="editMatCalibre" type="number" step="1" placeholder="14, 16, 18...">
+                </div>
+            </div>
+            <div class="grid-3 mb-2">
+                <div><label>Largo paq (cm)</label><input id="editMatLargo" type="number" step="0.01"></div>
+                <div><label>Ancho paq (cm)</label><input id="editMatAncho" type="number" step="0.01"></div>
+                <div><label>Alto paq (cm)</label><input id="editMatAlto" type="number" step="0.01"></div>
+            </div>
+            <div class="mb-2">
+                <label>Peso por paquete (ton)</label>
+                <input id="editMatPeso" type="number" step="0.00001">
+            </div>
+            <div class="info-box mt-2" style="background:rgba(245,158,11,0.1);border-color:var(--amber);">
+                <small>⚠️ Los cambios se guardarán en el archivo Excel de productos</small>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('modalEditMaterial')">Cancelar</button>
+            <button class="btn btn-success" id="btnSaveEditMaterial">💾 Guardar Cambios</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal: Prioridad de Almacenes -->
+<div class="modal-backdrop" id="modalPriority">
+    <div class="modal" style="max-width:450px;">
+        <div class="modal-header">
+            <h3>⚙️ Prioridad de Almacenes</h3>
+            <button class="btn-close" onclick="closeModal('modalPriority')">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:12px;color:var(--muted);margin-bottom:15px;">
+                Asigna prioridad a los almacenes. El <strong>1</strong> es el más importante y se acomodará primero (cama 1 en adelante).
+            </p>
+            <div id="almacenPriorityList" style="max-height:300px;overflow-y:auto;">
+                <!-- Se llena dinámicamente -->
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('modalPriority')">Cancelar</button>
+            <button class="btn btn-primary" id="btnSavePriority">💾 Guardar Prioridades</button>
+        </div>
+    </div>
+</div>
+
+<!-- Modal Búsqueda Múltiple -->
+<div class="modal-backdrop" id="modalBusquedaMultiple">
+    <div class="modal" style="max-width:600px;">
+        <div class="modal-header">
+            <h3>📋 Búsqueda Múltiple de Materiales</h3>
+            <button class="btn-close" onclick="closeModal('modalBusquedaMultiple')">×</button>
+        </div>
+        <div class="modal-body">
+            <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
+                Escribe las claves SAP (una por línea) y haz clic en Buscar. Luego podrás editar cada material antes de agregarlo.
+            </p>
+            <textarea id="txtClavesSAP" rows="6" placeholder="100005991&#10;100005778&#10;100006002&#10;..." 
+                style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--border); 
+                background:var(--bg-secondary); color:var(--text-primary); font-family:monospace; resize:vertical;"></textarea>
+            
+            <button class="btn btn-primary mt-2" id="btnBuscarMultiple" style="width:100%;">🔍 Buscar Materiales</button>
+            
+            <!-- Lista de materiales encontrados -->
+            <div id="listaMaterialesEncontrados" style="margin-top:15px; max-height:300px; overflow-y:auto; display:none;">
+                <label style="font-weight:bold;">Materiales encontrados:</label>
+                <div id="materialesEncontradosContainer"></div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="btn btn-secondary" onclick="closeModal('modalBusquedaMultiple')">Cerrar</button>
+        </div>
+    </div>
+</div>
+
+<!-- Toast -->
+<div class="toast" id="toast"></div>
+
+<!-- ==================== SCRIPTS ==================== -->
+<!-- Three.js -->
+<script type="importmap">
+{
+    "imports": {
+        "three": "https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.module.js",
+        "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.149.0/examples/jsm/"
+    }
+}
+</script>
+<script type="module">
+    import * as THREE from "three";
+    import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+    window.THREE = THREE;
+    window.OrbitControls = OrbitControls;
+    window.dispatchEvent(new Event("three-ready"));
+</script>
+
+<!-- App Scripts -->
+<script src="js/api.js"></script>
+<script src="js/state.js"></script>
+<script src="js/ui.js"></script>
+<script src="js/vierwer.js"></script>
+<script src="js/main.js"></script>
+</body>
+</html>
