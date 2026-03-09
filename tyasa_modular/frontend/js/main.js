@@ -693,7 +693,7 @@ async function saveLoadToDatabase() {
     const fecha = state.load?.fecha || utils.getToday();
 
     // Usar el número del state; si no hay (carga no guardada por usuario), usar placeholder
-    const numero = state.load?.numero_carga || `BORRADOR-${fecha}-${Date.now()}`;
+    const numero = state.load?.numero_carga || 'BORRADOR';
     
     try {
         const res = await api.createLoad({ fecha, numero_carga: numero });

@@ -506,27 +506,41 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                         all_beds[p.bed_number] = []
                     all_beds[p.bed_number].append(p)
 
+                # Zona A = delantera (0–6025 mm), Zona B = trasera (6025–MAX)
+                ZONA_A_COLOR = colors.HexColor("#dbeafe")  # azul claro
+                ZONA_B_COLOR = colors.HexColor("#fee2e2")  # rojo claro
+                ZONA_FRONTAL_MM = 6025.0
+
+                def pkg_zona(p):
+                    """Determina zona por posición X del centro del paquete (siempre confiable)."""
+                    center_x = p.x + p.length_used / 2.0
+                    return "A" if center_x < ZONA_FRONTAL_MM else "B"
+
                 for idx, bed_num in enumerate(sorted(all_beds.keys()), 1):
                     bed_placements = all_beds[bed_num]
                     bed_label = f"Cama {idx}" if not is_dual else f"P{plat_num}-Cama {idx}"
-                    # Contar paquetes por zona: usar bed_zone si existe, si no, usar coordenada X
-                    def _get_zone(p):
-                        return p.bed_zone if p.bed_zone in ('A', 'B') else ("B" if p.x >= 6025 else "A")
-                    n_a = sum(1 for p in bed_placements if _get_zone(p) == 'A')
-                    n_b = sum(1 for p in bed_placements if _get_zone(p) == 'B')
-                    zone_info = f"  [Zona A: {n_a} paq  |  Zona B: {n_b} paq]"
+
+                    n_a = sum(1 for p in bed_placements if pkg_zona(p) == 'A')
+                    n_b = sum(1 for p in bed_placements if pkg_zona(p) == 'B')
+                    # Encabezado con colores inline: Zona A en azul, Zona B en rojo
+                    zone_info = (
+                        f'  [<font color="#1d4ed8"><b>Zona A: {n_a} paq</b></font>'
+                        f'  |  <font color="#dc2626"><b>Zona B: {n_b} paq</b></font>]'
+                    )
                     elements.append(Paragraph(f"{bed_label} - {len(bed_placements)} paquetes{zone_info}", heading_style))
 
                     if truck:
                         bed_drawing = create_bed_view_with_coords(truck, bed_placements, load.items, bed_num, plat_num if is_dual else None)
                         elements.append(bed_drawing)
 
-                    # Tabla con columna Zona
+                    # Tabla con columna Zona — filas coloreadas según zona
                     bed_data = [["#", "SAP", "Descripción", "Dimensiones", "Peso", "Cal", "Almacén", "Zona", "Pos X"]]
+                    row_zones = []  # 'A' o 'B' por fila de datos (sin contar encabezado)
                     for bidx, p in enumerate(bed_placements, 1):
                         item = next((i for i in load.items if i.id == p.load_item_id), None)
                         if item:
-                            zona = p.bed_zone if p.bed_zone in ('A', 'B') else ("B" if p.x >= 6025 else "A")
+                            zona = pkg_zona(p)
+                            row_zones.append(zona)
                             bed_data.append([str(bidx), str(item.sap_code)[:10], (item.description or "")[:28],
                                 f"{p.length_used:.0f}×{p.width_used:.0f}×{p.height_used:.0f}",
                                 f"{(item.kg_por_paquete or 0)/1000:.2f}", str(int(item.calibre)) if item.calibre else "—",
@@ -534,15 +548,18 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
 
                     if len(bed_data) > 1:
                         bed_table = Table(bed_data, colWidths=[0.2*inch, 0.5*inch, 1.3*inch, 0.85*inch, 0.4*inch, 0.3*inch, 0.5*inch, 0.3*inch, 0.4*inch])
-                        bed_table.setStyle(TableStyle([
+                        ts = [
                             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3b82f6")),
                             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
                             ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
                             ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
                             ('FONTSIZE', (0, 0), (-1, -1), 6),
                             ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#f3f4f6")]),
-                        ]))
+                        ]
+                        for ri, zona in enumerate(row_zones, 1):
+                            bg = ZONA_A_COLOR if zona == 'A' else ZONA_B_COLOR
+                            ts.append(('BACKGROUND', (0, ri), (-1, ri), bg))
+                        bed_table.setStyle(TableStyle(ts))
                         elements.append(bed_table)
                     elements.append(Spacer(1, 10))
             else:
