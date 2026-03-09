@@ -490,8 +490,8 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
         
         # Agrupar placements por plana y cama
         for plat_num in range(1, num_platforms + 1):
-            # Filtrar placements de esta plana
-            plat_placements = [p for p in placements if getattr(p, 'platform', 1) == plat_num or (plat_num == 1 and not hasattr(p, 'platform'))]
+            # Filtrar placements de esta plana (usar or 1 para manejar platform=None)
+            plat_placements = [p for p in placements if (p.platform or 1) == plat_num]
             
             if is_dual and len(plat_placements) > 0:
                 elements.append(Paragraph(f"═══ PLANA {plat_num} ═══", ParagraphStyle('PlatformTitle', parent=styles['Heading1'],
@@ -509,9 +509,11 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                 for idx, bed_num in enumerate(sorted(all_beds.keys()), 1):
                     bed_placements = all_beds[bed_num]
                     bed_label = f"Cama {idx}" if not is_dual else f"P{plat_num}-Cama {idx}"
-                    # Contar paquetes por zona usando bed_zone guardado en optimización
-                    n_a = sum(1 for p in bed_placements if (p.bed_zone or 'A') == 'A')
-                    n_b = sum(1 for p in bed_placements if (p.bed_zone or 'A') == 'B')
+                    # Contar paquetes por zona: usar bed_zone si existe, si no, usar coordenada X
+                    def _get_zone(p):
+                        return p.bed_zone if p.bed_zone in ('A', 'B') else ("B" if p.x >= 6025 else "A")
+                    n_a = sum(1 for p in bed_placements if _get_zone(p) == 'A')
+                    n_b = sum(1 for p in bed_placements if _get_zone(p) == 'B')
                     zone_info = f"  [Zona A: {n_a} paq  |  Zona B: {n_b} paq]"
                     elements.append(Paragraph(f"{bed_label} - {len(bed_placements)} paquetes{zone_info}", heading_style))
 
@@ -524,7 +526,7 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                     for bidx, p in enumerate(bed_placements, 1):
                         item = next((i for i in load.items if i.id == p.load_item_id), None)
                         if item:
-                            zona = p.bed_zone or ("B" if p.x >= 6025 else "A")
+                            zona = p.bed_zone if p.bed_zone in ('A', 'B') else ("B" if p.x >= 6025 else "A")
                             bed_data.append([str(bidx), str(item.sap_code)[:10], (item.description or "")[:28],
                                 f"{p.length_used:.0f}×{p.width_used:.0f}×{p.height_used:.0f}",
                                 f"{(item.kg_por_paquete or 0)/1000:.2f}", str(int(item.calibre)) if item.calibre else "—",
@@ -810,19 +812,19 @@ def create_bed_view_with_coords(truck, bed_placements, items, bed_num, platform_
                  fontSize=7, fillColor=colors.HexColor("#22c55e")))
 
     # Etiquetas LADO PILOTO (IZQUIERDO) y LADO COPILOTO (DERECHO)
-    # Vista superior: Z=max → arriba del diagrama = LADO PILOTO (IZQUIERDO)
-    #                 Z=0   → abajo del diagrama  = LADO COPILOTO (DERECHO)
+    # Vista superior: Z=0   → abajo del diagrama  = LADO PILOTO (IZQUIERDO)
+    #                 Z=max → arriba del diagrama = LADO COPILOTO (DERECHO)
     right_label_x = offset_x + truck_w + 4
-    # LADO PILOTO arriba (top edge = Z máximo = lado izquierdo del camión)
-    d.add(String(right_label_x, offset_y + truck_h - 6, "LADO PILOTO",
-                 fontSize=6, fillColor=colors.HexColor("#22c55e")))
-    d.add(String(right_label_x, offset_y + truck_h - 13, "(IZQUIERDO)",
-                 fontSize=5, fillColor=colors.HexColor("#22c55e")))
-    # LADO COPILOTO abajo (bottom edge = Z=0 = lado derecho del camión)
-    d.add(String(right_label_x, offset_y + 9, "LADO COPILOTO",
+    # LADO COPILOTO arriba (top edge = Z máximo = lado derecho del camión)
+    d.add(String(right_label_x, offset_y + truck_h - 6, "LADO COPILOTO",
                  fontSize=6, fillColor=colors.HexColor("#f59e0b")))
-    d.add(String(right_label_x, offset_y + 2, "(DERECHO)",
+    d.add(String(right_label_x, offset_y + truck_h - 13, "(DERECHO)",
                  fontSize=5, fillColor=colors.HexColor("#f59e0b")))
+    # LADO PILOTO abajo (bottom edge = Z=0 = lado izquierdo del camión)
+    d.add(String(right_label_x, offset_y + 9, "LADO PILOTO",
+                 fontSize=6, fillColor=colors.HexColor("#22c55e")))
+    d.add(String(right_label_x, offset_y + 2, "(IZQUIERDO)",
+                 fontSize=5, fillColor=colors.HexColor("#22c55e")))
     
     # Línea divisoria Zona A / Zona B para camiones largos
     is_long = truck.length_mm >= 11000
@@ -844,7 +846,8 @@ def create_bed_view_with_coords(truck, bed_placements, items, bed_num, platform_
         calibre = item.calibre if item else 0
 
         # Zona B: color ámbar en lugar del color por calibre
-        is_zone_b = is_long and (p.bed_zone or ("B" if p.x >= ZONE_LIMIT else "A")) == "B"
+        zona_p = p.bed_zone if p.bed_zone in ('A', 'B') else ("B" if p.x >= ZONE_LIMIT else "A")
+        is_zone_b = is_long and zona_p == "B"
         if is_zone_b:
             pkg_color = "#d97706"
         else:
