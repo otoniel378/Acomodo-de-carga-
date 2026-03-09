@@ -213,7 +213,11 @@ def update_load(load_id: int, data: LoadUpdate, db: Session = Depends(get_db)):
     # Actualizar camión
     if data.truck_id is not None:
         load.truck_id = data.truck_id
-    
+
+    # Actualizar número de carga (se asigna al guardar explícitamente)
+    if data.numero_carga is not None:
+        load.numero_carga = data.numero_carga
+
     # Actualizar campos de identificación
     if data.numero_viaje is not None:
         load.numero_viaje = data.numero_viaje
@@ -495,95 +499,50 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                                          spaceBefore=15, spaceAfter=10, alignment=1)))
             
             if is_long_truck:
-                # Para tráiler/full: agrupar por zona (A y B)
-                zone_a_placements = [p for p in plat_placements if getattr(p, 'bed_zone', 'A') == 'A' or p.x < 6025]
-                zone_b_placements = [p for p in plat_placements if getattr(p, 'bed_zone', 'A') == 'B' or p.x >= 6025]
-                
-                # ZONA A - Delantera
-                if zone_a_placements:
-                    elements.append(Paragraph("▶ ZONA A - Delantera (Atrás de la Concha)", ParagraphStyle('ZoneTitle', parent=styles['Heading2'],
-                                             fontSize=11, textColor=colors.HexColor("#3b82f6"), spaceBefore=10, spaceAfter=5)))
-                    
-                    beds_zone_a = {}
-                    for p in zone_a_placements:
-                        if p.bed_number not in beds_zone_a:
-                            beds_zone_a[p.bed_number] = []
-                        beds_zone_a[p.bed_number].append(p)
-                    
-                    for idx, bed_num in enumerate(sorted(beds_zone_a.keys()), 1):
-                        bed_placements = beds_zone_a[bed_num]
-                        bed_label = f"Cama {idx}a" if not is_dual else f"P{plat_num}-Cama {idx}a"
-                        elements.append(Paragraph(f"{bed_label} - {len(bed_placements)} paquetes", heading_style))
-                        
-                        if truck:
-                            bed_drawing = create_bed_view_with_coords(truck, bed_placements, load.items, bed_num, plat_num if is_dual else None)
-                            elements.append(bed_drawing)
-                        
-                        # Tabla de materiales
-                        bed_data = [["#", "SAP", "Descripción", "Dimensiones", "Peso", "Cal", "Almacén", "Pos"]]
-                        for bidx, p in enumerate(bed_placements, 1):
-                            item = next((i for i in load.items if i.id == p.load_item_id), None)
-                            if item:
-                                bed_data.append([str(bidx), str(item.sap_code)[:10], (item.description or "")[:30],
-                                    f"{p.length_used:.0f}×{p.width_used:.0f}×{p.height_used:.0f}",
-                                    f"{(item.kg_por_paquete or 0)/1000:.2f}", str(int(item.calibre)) if item.calibre else "—",
-                                    item.almacen or "—", f"X:{p.x:.0f}"])
-                        
-                        if len(bed_data) > 1:
-                            bed_table = Table(bed_data, colWidths=[0.2*inch, 0.5*inch, 1.4*inch, 0.9*inch, 0.4*inch, 0.3*inch, 0.5*inch, 0.5*inch])
-                            bed_table.setStyle(TableStyle([
-                                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3b82f6")),
-                                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                                ('FONTSIZE', (0, 0), (-1, -1), 6),
-                                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                            ]))
-                            elements.append(bed_table)
-                        elements.append(Spacer(1, 10))
-                
-                # ZONA B - Trasera
-                if zone_b_placements:
-                    elements.append(Paragraph("▶ ZONA B - Trasera (Sobre los Ejes)", ParagraphStyle('ZoneTitle', parent=styles['Heading2'],
-                                             fontSize=11, textColor=colors.HexColor("#f59e0b"), spaceBefore=10, spaceAfter=5)))
-                    
-                    beds_zone_b = {}
-                    for p in zone_b_placements:
-                        if p.bed_number not in beds_zone_b:
-                            beds_zone_b[p.bed_number] = []
-                        beds_zone_b[p.bed_number].append(p)
-                    
-                    for idx, bed_num in enumerate(sorted(beds_zone_b.keys()), 1):
-                        bed_placements = beds_zone_b[bed_num]
-                        bed_label = f"Cama {idx}b" if not is_dual else f"P{plat_num}-Cama {idx}b"
-                        elements.append(Paragraph(f"{bed_label} - {len(bed_placements)} paquetes", heading_style))
-                        
-                        if truck:
-                            bed_drawing = create_bed_view_with_coords(truck, bed_placements, load.items, bed_num, plat_num if is_dual else None)
-                            elements.append(bed_drawing)
-                        
-                        # Tabla de materiales
-                        bed_data = [["#", "SAP", "Descripción", "Dimensiones", "Peso", "Cal", "Almacén", "Pos"]]
-                        for bidx, p in enumerate(bed_placements, 1):
-                            item = next((i for i in load.items if i.id == p.load_item_id), None)
-                            if item:
-                                bed_data.append([str(bidx), str(item.sap_code)[:10], (item.description or "")[:30],
-                                    f"{p.length_used:.0f}×{p.width_used:.0f}×{p.height_used:.0f}",
-                                    f"{(item.kg_por_paquete or 0)/1000:.2f}", str(int(item.calibre)) if item.calibre else "—",
-                                    item.almacen or "—", f"X:{p.x:.0f}"])
-                        
-                        if len(bed_data) > 1:
-                            bed_table = Table(bed_data, colWidths=[0.2*inch, 0.5*inch, 1.4*inch, 0.9*inch, 0.4*inch, 0.3*inch, 0.5*inch, 0.5*inch])
-                            bed_table.setStyle(TableStyle([
-                                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f59e0b")),
-                                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                                ('FONTSIZE', (0, 0), (-1, -1), 6),
-                                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                            ]))
-                            elements.append(bed_table)
-                        elements.append(Spacer(1, 10))
+                # Para tráiler/full: mostrar cama completa (Zona A + B juntas) por bed_number
+                all_beds = {}
+                for p in plat_placements:
+                    if p.bed_number not in all_beds:
+                        all_beds[p.bed_number] = []
+                    all_beds[p.bed_number].append(p)
+
+                for idx, bed_num in enumerate(sorted(all_beds.keys()), 1):
+                    bed_placements = all_beds[bed_num]
+                    bed_label = f"Cama {idx}" if not is_dual else f"P{plat_num}-Cama {idx}"
+                    # Contar paquetes por zona
+                    n_a = sum(1 for p in bed_placements if p.x < 6025)
+                    n_b = sum(1 for p in bed_placements if p.x >= 6025)
+                    zone_info = f"  [Zona A: {n_a} paq  |  Zona B: {n_b} paq]"
+                    elements.append(Paragraph(f"{bed_label} - {len(bed_placements)} paquetes{zone_info}", heading_style))
+
+                    if truck:
+                        bed_drawing = create_bed_view_with_coords(truck, bed_placements, load.items, bed_num, plat_num if is_dual else None)
+                        elements.append(bed_drawing)
+
+                    # Tabla con columna Zona
+                    bed_data = [["#", "SAP", "Descripción", "Dimensiones", "Peso", "Cal", "Almacén", "Zona", "Pos X"]]
+                    for bidx, p in enumerate(bed_placements, 1):
+                        item = next((i for i in load.items if i.id == p.load_item_id), None)
+                        if item:
+                            zona = "B" if p.x >= 6025 else "A"
+                            bed_data.append([str(bidx), str(item.sap_code)[:10], (item.description or "")[:28],
+                                f"{p.length_used:.0f}×{p.width_used:.0f}×{p.height_used:.0f}",
+                                f"{(item.kg_por_paquete or 0)/1000:.2f}", str(int(item.calibre)) if item.calibre else "—",
+                                item.almacen or "—", zona, f"{p.x:.0f}"])
+
+                    if len(bed_data) > 1:
+                        bed_table = Table(bed_data, colWidths=[0.2*inch, 0.5*inch, 1.3*inch, 0.85*inch, 0.4*inch, 0.3*inch, 0.5*inch, 0.3*inch, 0.4*inch])
+                        bed_table.setStyle(TableStyle([
+                            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3b82f6")),
+                            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+                            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                            ('FONTSIZE', (0, 0), (-1, -1), 6),
+                            ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
+                            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#f3f4f6")]),
+                        ]))
+                        elements.append(bed_table)
+                    elements.append(Spacer(1, 10))
             else:
                 # Para camiones cortos: nomenclatura simple
                 beds_used = {}
@@ -850,28 +809,49 @@ def create_bed_view_with_coords(truck, bed_placements, items, bed_num, platform_
     d.add(String(offset_x - 40, offset_y + truck_h / 2 - 45, "A", 
                  fontSize=7, fillColor=colors.HexColor("#22c55e")))
     
-    # Dibujar paquetes con colores por calibre
+    # Línea divisoria Zona A / Zona B para camiones largos
+    is_long = truck.length_mm >= 11000
+    ZONE_LIMIT = 6025
+    if is_long:
+        zone_x = offset_x + ZONE_LIMIT * scale
+        d.add(Line(zone_x, offset_y, zone_x, offset_y + truck_h,
+                   strokeColor=colors.HexColor("#f59e0b"), strokeWidth=1.5,
+                   strokeDashArray=[4, 3]))
+        d.add(String(offset_x + 5, offset_y + truck_h + 35, "ZONA A - Delantera",
+                     fontSize=7, fillColor=colors.HexColor("#3b82f6")))
+        d.add(String(zone_x + 5, offset_y + truck_h + 35, "ZONA B - Trasera (Sobre ejes)",
+                     fontSize=7, fillColor=colors.HexColor("#f59e0b")))
+
+    # Dibujar paquetes con colores por calibre (Zona B en ámbar)
     for idx, p in enumerate(bed_placements, 1):
         # Buscar item para obtener calibre
         item = next((i for i in items if i.id == p.load_item_id), None)
         calibre = item.calibre if item else 0
-        pkg_color = get_color_by_calibre(calibre)
-        
+
+        # Zona B: color ámbar en lugar del color por calibre
+        is_zone_b = is_long and p.x >= ZONE_LIMIT
+        if is_zone_b:
+            pkg_color = "#d97706"
+        else:
+            pkg_color = get_color_by_calibre(calibre)
+
+        stroke_color = colors.HexColor("#fbbf24") if is_zone_b else colors.white
+
         px = offset_x + p.x * scale
         py = offset_y + p.z * scale
         pw = p.length_used * scale
         ph = p.width_used * scale
-        
-        # Rectángulo del paquete con color por calibre
+
+        # Rectángulo del paquete
         d.add(Rect(px, py, pw, ph,
-                   strokeColor=colors.white, strokeWidth=0.5,
+                   strokeColor=stroke_color, strokeWidth=0.5,
                    fillColor=colors.HexColor(pkg_color)))
-        
-        # Número del paquete centrado - más grande
+
+        # Número del paquete centrado
         num_x = px + pw/2 - 3
         num_y = py + ph/2 - 3
         d.add(String(num_x, num_y, str(idx), fontSize=6, fillColor=colors.white))
-    
+
     return d
 
 

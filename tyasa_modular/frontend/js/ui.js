@@ -56,11 +56,14 @@ function updateTruckInfo() {
     if (state.truck) {
         const t = state.truck;
         const qty = state.truckQuantity || 1;
-        const totalPayload = qty > 1 && !t.is_dual_platform ? t.max_payload_kg * qty : t.max_payload_kg;
+        const isDualPlatform = t.is_dual_platform || t.id === 'FULL' || t.id === 'TORTON_DOBLE';
+        // Para dual-platform max_payload_kg es por plana; mostrar total × planas
+        const totalPayload = isDualPlatform ? t.max_payload_kg * 2 : (qty > 1 ? t.max_payload_kg * qty : t.max_payload_kg);
         const qtyLabel = qty > 1 ? ` × ${qty} unidades` : '';
-        
+        const perPlanaLabel = isDualPlatform ? ` (${utils.formatNumber(t.max_payload_kg)} kg/plana)` : '';
+
         info.innerHTML = `<b>${utils.formatNumber(t.length_mm)} × ${utils.formatNumber(t.width_mm)} × ${utils.formatNumber(t.height_mm)} mm</b>${qtyLabel}<br/>
-            ${t.beds_count} camas/plana · Planas: ${qty} · Máx: ${utils.formatNumber(totalPayload)} kg`;
+            ${t.beds_count} camas/plana · Planas: ${isDualPlatform ? 2 : qty} · Máx: ${utils.formatNumber(totalPayload)} kg${perPlanaLabel}`;
     } else {
         info.textContent = 'Selecciona un camión para ver sus dimensiones';
     }
@@ -316,9 +319,9 @@ function updateSummary() {
 function updatePayloadInfo() {
     const t = state.truck;
     const qty = state.truckQuantity || 1;
-    // Calcular el payload total considerando la cantidad de transportes
-    // Si es dual_platform (Full), no multiplicar porque ya tiene 2 planas en 1 transporte
-    const maxPay = t ? (qty > 1 && !t.is_dual_platform ? t.max_payload_kg * qty : t.max_payload_kg) : 0;
+    const isDualPlatform = t?.is_dual_platform || t?.id === 'FULL' || t?.id === 'TORTON_DOBLE';
+    // Para dual-platform max_payload_kg es por plana; el total es × 2 planas
+    const maxPay = t ? (isDualPlatform ? t.max_payload_kg * 2 : (qty > 1 ? t.max_payload_kg * qty : t.max_payload_kg)) : 0;
     const aditKg = utils.getTotalAditamentos();
     const matKg = utils.getTotalTons() * 1000;
     const available = Math.max(0, maxPay - aditKg - matKg);
@@ -416,10 +419,10 @@ function renderBedsTabs() {
                                 (b === state.selectedBed) && 
                                 (state.selectedZone || 'A') === 'A';
                 
-                html += `<div class="bed-tab zone-a ${isActive ? 'active' : ''}" 
+                html += `<div class="bed-tab zone-a ${isActive ? 'active' : ''}"
                              onclick="selectBedWithZone(${plat}, ${b}, 'A')"
                              data-platform="${plat}" data-bed="${b}" data-zone="A">
-                    ${isDual ? `P${plat}-` : ''}Cama ${idx + 1}a<span class="count">(${cnt})</span>
+                    ${isDual ? `P${plat}-` : ''}Cama ${idx + 1}<span class="count">(${cnt})</span>
                 </div>`;
             });
             
@@ -430,10 +433,10 @@ function renderBedsTabs() {
                                 (b === state.selectedBed) && 
                                 (state.selectedZone) === 'B';
                 
-                html += `<div class="bed-tab zone-b ${isActive ? 'active' : ''}" 
+                html += `<div class="bed-tab zone-b ${isActive ? 'active' : ''}"
                              onclick="selectBedWithZone(${plat}, ${b}, 'B')"
                              data-platform="${plat}" data-bed="${b}" data-zone="B">
-                    ${isDual ? `P${plat}-` : ''}Cama ${idx + 1}b<span class="count">(${cnt})</span>
+                    ${isDual ? `P${plat}-` : ''}Cama ${idx + 1}<span class="count">(${cnt})</span>
                 </div>`;
             });
         } else {
@@ -506,7 +509,7 @@ function renderBedsDistribution() {
     
     const isDual = numPlatforms > 1;
     
-    // Calcular el límite de peso por plataforma
+    // max_payload_kg ya es el límite por plataforma (para dual-platform) o total (para simples)
     const maxPayloadPerPlatform = t ? t.max_payload_kg : 0;
     
     let html = '';

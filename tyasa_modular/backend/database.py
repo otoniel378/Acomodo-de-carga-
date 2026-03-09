@@ -174,6 +174,17 @@ def init_database():
             cursor.execute("SELECT tons_sobrantes FROM load_items LIMIT 1")
             conn.close()
             print(f"✓ Base de datos existente válida")
+            # Sincronizar max_payload_kg de camiones con los valores actuales de config
+            db = SessionLocal()
+            try:
+                for t in DEFAULT_TRUCKS:
+                    existing = db.query(TruckType).filter(TruckType.id == t['id']).first()
+                    if existing and existing.max_payload_kg != t['max_payload_kg']:
+                        print(f"  Actualizando {t['id']}: {existing.max_payload_kg} → {t['max_payload_kg']} kg/plana")
+                        existing.max_payload_kg = t['max_payload_kg']
+                db.commit()
+            finally:
+                db.close()
             return  # BD existe y es válida, no recrear
         except Exception as e:
             conn.close()

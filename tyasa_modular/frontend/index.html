@@ -692,9 +692,10 @@
         </div>
         <div class="modal-body">
             <p style="font-size:12px;color:var(--muted);margin-bottom:15px;">
-                Asigna prioridad a los almacenes. El <strong>1</strong> es el más importante y se acomodará primero (cama 1 en adelante).
+                Asigna prioridad a cada familia de material (almacén + calibre). El <strong>1</strong> se acomoda primero.
+                Si hay varios calibres del mismo almacén, cada uno puede tener su propia prioridad.
             </p>
-            <div id="almacenPriorityList" style="max-height:300px;overflow-y:auto;">
+            <div id="almacenPriorityList" style="max-height:350px;overflow-y:auto;">
                 <!-- Se llena dinámicamente -->
             </div>
         </div>
@@ -707,24 +708,43 @@
 
 <!-- Modal Búsqueda Múltiple -->
 <div class="modal-backdrop" id="modalBusquedaMultiple">
-    <div class="modal" style="max-width:600px;">
+    <div class="modal" style="max-width:650px;">
         <div class="modal-header">
-            <h3>📋 Búsqueda Múltiple de Materiales</h3>
+            <h3>📋 Lista de Materiales</h3>
             <button class="btn-close" onclick="closeModal('modalBusquedaMultiple')">×</button>
         </div>
         <div class="modal-body">
-            <p style="font-size:12px;color:var(--muted);margin-bottom:10px;">
-                Escribe las claves SAP (una por línea) y haz clic en Buscar. Luego podrás editar cada material antes de agregarlo.
-            </p>
-            <textarea id="txtClavesSAP" rows="6" placeholder="100005991&#10;100005778&#10;100006002&#10;..." 
-                style="width:100%; padding:10px; border-radius:6px; border:1px solid var(--border); 
-                background:var(--bg-secondary); color:var(--text-primary); font-family:monospace; resize:vertical;"></textarea>
-            
-            <button class="btn btn-primary mt-2" id="btnBuscarMultiple" style="width:100%;">🔍 Buscar Materiales</button>
-            
+            <div class="info-box mb-3">
+                <small>💡 Copia cada columna de Excel y pégala en su campo correspondiente (una por línea). Peso/Paquete y Toneladas son opcionales al pegar — puedes llenarlos en los resultados.</small>
+            </div>
+            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:12px;">
+                <div>
+                    <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">CLAVE SAP *</label>
+                    <textarea id="pasteClavesSAP"
+                        placeholder="100006052&#10;100005567&#10;100006332&#10;..."
+                        rows="8"
+                        style="width:100%;padding:6px 8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:12px;font-family:monospace;resize:vertical;box-sizing:border-box;line-height:1.8;"></textarea>
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">PESO/PAQUETE (ton)</label>
+                    <textarea id="pastePesos"
+                        placeholder="0.455&#10;0.434&#10;0.777&#10;..."
+                        rows="8"
+                        style="width:100%;padding:6px 8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:12px;font-family:monospace;resize:vertical;box-sizing:border-box;line-height:1.8;"></textarea>
+                </div>
+                <div>
+                    <label style="font-size:11px;font-weight:600;color:var(--muted);display:block;margin-bottom:4px;">TONELADAS A ENVIAR</label>
+                    <textarea id="pasteToneladas"
+                        placeholder="4&#10;2&#10;5&#10;..."
+                        rows="8"
+                        style="width:100%;padding:6px 8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:12px;font-family:monospace;resize:vertical;box-sizing:border-box;line-height:1.8;"></textarea>
+                </div>
+            </div>
+            <button class="btn btn-primary w-full" id="btnBuscarMultiple">🔍 Buscar Materiales</button>
+
             <!-- Lista de materiales encontrados -->
-            <div id="listaMaterialesEncontrados" style="margin-top:15px; max-height:300px; overflow-y:auto; display:none;">
-                <label style="font-weight:bold;">Materiales encontrados:</label>
+            <div id="listaMaterialesEncontrados" style="margin-top:15px; max-height:350px; overflow-y:auto; display:none;">
+                <label style="font-weight:bold; font-size:12px;">Resultados:</label>
                 <div id="materialesEncontradosContainer"></div>
             </div>
         </div>

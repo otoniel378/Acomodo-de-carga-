@@ -624,20 +624,26 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
     
     is_dual = num_platforms > 1
     
-    # Calcular peso máximo total (multiplicado por cantidad de transportes)
+    # Calcular peso máximo total
+    # Para dual-platform (Full/Torton Doble), max_payload_kg es POR PLANA → total = × num_platforms
+    # Para camiones simples con truck_quantity > 1, multiplicar por cantidad
     max_payload_per_truck = float(truck.max_payload_kg)
-    if not is_dual_base and truck_quantity > 1:
-        # Si no es Full/Torton_Doble, multiplicamos el payload por la cantidad
+    if is_dual_base:
+        # max_payload_kg es por plana; el total es num_platforms veces ese valor
+        total_max_payload = max_payload_per_truck * num_platforms
+    elif truck_quantity > 1:
         total_max_payload = max_payload_per_truck * truck_quantity
     else:
         total_max_payload = max_payload_per_truck
     
     print(f"\n[CONFIG] Camión: {truck.name}, Cantidad: {truck_quantity}, Planas: {num_platforms}, Payload: {total_max_payload}kg", flush=True)
     
+    # Prioridad por (almacén, calibre). Si calibre es None aplica a todos los calibres de ese almacén.
     almacen_priority = {}
     if request.almacen_priorities:
         for ap in request.almacen_priorities:
-            almacen_priority[ap.almacen] = ap.priority
+            cal = ap.calibre if ap.calibre is not None else None
+            almacen_priority[(ap.almacen, cal)] = ap.priority
     
     db.query(Placement).filter(Placement.load_id == load.id).delete()
     
@@ -652,7 +658,12 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
     for item in items:
         calibre = item.calibre or 99
         almacen = item.almacen or ""
-        priority = almacen_priority.get(almacen, 999)
+        # Buscar prioridad: primero (almacén, calibre específico), luego (almacén, None = todos)
+        item_calibre_real = float(item.calibre) if item.calibre and item.calibre != 0 else None
+        priority = almacen_priority.get(
+            (almacen, item_calibre_real),
+            almacen_priority.get((almacen, None), 999)
+        )
         is_deferred = getattr(item, 'is_deferred', False) or False
         
         print(f"[READ] Item {item.sap_code}: is_deferred={is_deferred}, alto={item.alto_mm}", flush=True)

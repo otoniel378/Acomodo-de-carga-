@@ -185,8 +185,8 @@ function render3D() {
         }
         
         // ========== ETIQUETAS DE LADOS (PILOTO/COPILOTO) ==========
-        addTextLabel3D('◀ LADO PILOTO', offsetX + L/2, FLOOR_HEIGHT + 200, -400, 0x22c55e, false);
-        addTextLabel3D('LADO COPILOTO ▶', offsetX + L/2, FLOOR_HEIGHT + 200, W + 400, 0x22c55e, false);
+        addTextLabel3D('◀ LADO COPILOTO', offsetX + L/2, FLOOR_HEIGHT + 200, -400, 0x22c55e, false);
+        addTextLabel3D('LADO PILOTO ▶', offsetX + L/2, FLOOR_HEIGHT + 200, W + 400, 0x22c55e, false);
         
         // ========== ETIQUETAS DE ZONAS A/B (solo para tráiler/full >= 12m) ==========
         if (L >= 11000) {
@@ -626,8 +626,8 @@ function draw2D(bedNum) {
     ctx.fillStyle = '#22c55e';
     ctx.font = 'bold 9px sans-serif';
     ctx.textAlign = 'center';
-    ctx.fillText('▲ LADO PILOTO (Izq)', offsetX + truckL * scale / 2, offsetY - 8);
-    ctx.fillText('▼ LADO COPILOTO (Der)', offsetX + truckL * scale / 2, offsetY + truckW * scale + 20);
+    ctx.fillText('▲ LADO COPILOTO (DERECHO)', offsetX + truckL * scale / 2, offsetY - 8);
+    ctx.fillText('▼ LADO PILOTO (IZQUIERDO)', offsetX + truckL * scale / 2, offsetY + truckW * scale + 20);
     
     // ========== LÍNEA DIVISORIA ZONA A / B (para tráiler/full) ==========
     if (truckL >= 11000) {
@@ -645,9 +645,9 @@ function draw2D(bedNum) {
         
         ctx.font = 'bold 8px sans-serif';
         ctx.fillStyle = '#3b82f6';
-        ctx.fillText('ZONA A - Delantera', offsetX + (zoneLimit * scale) / 2, offsetY - 20);
+        ctx.fillText('ZONA A - Delantera (Atrás de la concha)', offsetX + (zoneLimit * scale) / 2, offsetY - 20);
         ctx.fillStyle = '#f59e0b';
-        ctx.fillText('ZONA B - Trasera', zoneLimitX + ((truckL - zoneLimit) * scale) / 2, offsetY - 20);
+        ctx.fillText('ZONA B - Trasera (Sobre los ejes)', zoneLimitX + ((truckL - zoneLimit) * scale) / 2, offsetY - 20);
     }
     
     // Dimensiones
@@ -678,24 +678,36 @@ function draw2D(bedNum) {
         if (!item && state.materials.length > 0) {
             item = state.materials[0];
         }
-        
+
         // Color basado en CALIBRE
         const calibre = item?.calibre || 0;
         const color = getColorByCalibre(calibre);
-        
+
+        // Zona B: paquetes con x >= 6025mm en camiones largos
+        const isZoneB = truckL >= 11000 && p.x >= 6025;
+
         // Posición en canvas
         const px = offsetX + p.x * scale;
         const py = offsetY + p.z * scale;
         const pw = p.length_used * scale;
         const ph = p.width_used * scale;
-        
-        // Dibujar paquete con color por calibre
-        ctx.fillStyle = color.hex + 'dd';
-        ctx.fillRect(px, py, pw, ph);
-        
-        // Borde
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 1;
+
+        if (isZoneB) {
+            // Zona B: fondo ámbar, borde ámbar intenso
+            ctx.fillStyle = '#92400e' + 'dd';
+            ctx.fillRect(px, py, pw, ph);
+            // Capa de color calibre encima (más transparente)
+            ctx.fillStyle = color.hex + '55';
+            ctx.fillRect(px, py, pw, ph);
+            ctx.strokeStyle = '#f59e0b';
+            ctx.lineWidth = 1.5;
+        } else {
+            // Zona A: color por calibre normal
+            ctx.fillStyle = color.hex + 'dd';
+            ctx.fillRect(px, py, pw, ph);
+            ctx.strokeStyle = '#ffffff';
+            ctx.lineWidth = 1;
+        }
         ctx.strokeRect(px, py, pw, ph);
         
         // Número del paquete (índice + 1 para coincidir con la lista)
@@ -1114,23 +1126,34 @@ async function applyDragMove(deltaX, deltaZ) {
         for (const p of selectedPlacements) {
             const newX = p.x + deltaX;
             const newZ = p.z + deltaZ;
-            
+
             await api.updatePlacement(p.id, { x: newX, z: newZ });
-            
+
             // Actualizar localmente
             p.x = newX;
             p.z = newZ;
+
+            // Recalcular bed_zone según la nueva posición X (solo para tráiler/full >= 11m)
+            if (state.truck && state.truck.length_mm >= 11000) {
+                const pkgCenterX = p.x + p.length_used / 2;
+                p.bed_zone = pkgCenterX < 6025 ? 'A' : 'B';
+            }
         }
-        
+
         if (state.load) state.load.status = 'MANUAL';
         toast(`${selectedPlacements.length} paquete(s) movido(s)`, 'success');
-        
+
         // Recalcular altura
         recalculateTotalHeight();
-        
+
         render3D();
         draw2DWithMultiSelection(state.selectedBed);
         updateSelectionUI();
+
+        // Actualizar tabs de camas y distribución (reflejan zonas A/B recalculadas)
+        renderBedsTabs();
+        renderBedsDistribution();
+        renderBedMaterialsList(state.selectedBed, state.selectedPlatform || 1);
         
     } catch (err) {
         console.error('Error moviendo paquetes:', err);
@@ -1600,7 +1623,13 @@ async function applyPlacementEdit() {
             placement.x = newPosition.x;
             placement.y = newY;
             placement.z = newPosition.z;
-            
+
+            // Recalcular bed_zone para tráiler/full
+            if (state.truck && state.truck.length_mm >= 11000) {
+                const pkgCenterX = placement.x + placement.length_used / 2;
+                placement.bed_zone = pkgCenterX < 6025 ? 'A' : 'B';
+            }
+
             movedCount++;
         } catch (e) {
             console.error('Error moviendo paquete:', e);

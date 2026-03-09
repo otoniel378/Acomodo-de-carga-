@@ -59,25 +59,15 @@ async function init() {
     
     await checkConnection();
     
-    // Obtener el siguiente número de carga para mostrarlo
-    try {
-        const nextNum = await api.getNextLoadNumber();
-        state.load = {
-            id: null,
-            fecha: utils.getToday(),
-            numero_carga: nextNum.next_number,
-            status: 'DRAFT',
-            isNew: true
-        };
-    } catch (e) {
-        state.load = {
-            id: null,
-            fecha: utils.getToday(),
-            numero_carga: `TY-${new Date().getFullYear()}-1`,
-            status: 'DRAFT',
-            isNew: true
-        };
-    }
+    // Inicializar carga nueva local (sin número hasta que el usuario guarde)
+    state.load = {
+        id: null,
+        fecha: utils.getToday(),
+        numero_carga: null,
+        status: 'DRAFT',
+        isNew: true,
+        userSaved: false
+    };
     
     updateAllUI();
     render3D();
@@ -145,97 +135,130 @@ async function loadTrucks() {
 // ==================== BÚSQUEDA MÚLTIPLE DE MATERIALES ====================
 function openBusquedaMultiple() {
     openModal('modalBusquedaMultiple');
-    $('txtClavesSAP').value = '';
+    const sapTA = $('pasteClavesSAP');
+    const pesoTA = $('pastePesos');
+    const tonsTA = $('pasteToneladas');
+    if (sapTA) sapTA.value = '';
+    if (pesoTA) pesoTA.value = '';
+    if (tonsTA) tonsTA.value = '';
     $('listaMaterialesEncontrados').style.display = 'none';
     $('materialesEncontradosContainer').innerHTML = '';
 }
 
 async function buscarMaterialesMultiple() {
-    const txt = $('txtClavesSAP')?.value.trim();
-    if (!txt) {
-        toast('Escribe al menos una clave SAP', 'error');
+    const sapLines = ($('pasteClavesSAP')?.value || '').split('\n').map(s => s.trim()).filter(s => s);
+    const pesoLines = ($('pastePesos')?.value || '').split('\n').map(s => s.trim()).filter(s => s);
+    const tonsLines = ($('pasteToneladas')?.value || '').split('\n').map(s => s.trim()).filter(s => s);
+
+    if (sapLines.length === 0) {
+        toast('Pega al menos una Clave SAP', 'error');
         return;
     }
-    
-    // Parsear claves (por línea, coma, o espacio)
-    const claves = txt.split(/[\n,\s]+/).map(c => c.trim()).filter(c => c.length > 0);
-    
-    if (claves.length === 0) {
-        toast('No se encontraron claves válidas', 'error');
-        return;
-    }
-    
-    toast(`Buscando ${claves.length} materiales...`, 'info');
-    
+
+    const items = sapLines.map((sap, i) => ({
+        sap,
+        peso: parseFloat(pesoLines[i]) || 0,
+        tons: parseFloat(tonsLines[i]) || 0
+    }));
+
+    toast(`Buscando ${items.length} materiales...`, 'info');
+
     const container = $('materialesEncontradosContainer');
     container.innerHTML = '';
-    
+
     let encontrados = 0;
-    let noEncontrados = [];
-    
-    for (const sap of claves) {
+    const noEncontrados = [];
+    const inputStyle = 'width:100%;padding:4px 5px;background:var(--card);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:11px;';
+
+    for (const item of items) {
         try {
-            const producto = await api.getProduct(sap);
+            const producto = await api.getProduct(item.sap);
             encontrados++;
-            
-            // Crear card para cada material
+
             const card = document.createElement('div');
             card.className = 'material-card-multiple';
-            card.style.cssText = 'border:1px solid var(--border); border-radius:8px; padding:12px; margin-bottom:10px; background:var(--bg-secondary);';
+            card.style.cssText = 'border:1px solid var(--border);border-radius:8px;padding:12px;margin-bottom:10px;background:var(--bg-secondary);';
+
+            const calibreTag = producto.calibre ? `<span style="font-size:11px;background:var(--primary);color:white;padding:2px 6px;border-radius:4px;margin-left:5px;">Cal. ${producto.calibre}</span>` : '';
             card.innerHTML = `
-                <div style="display:flex; justify-content:space-between; align-items:start; margin-bottom:8px;">
+                <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:6px;">
                     <div>
-                        <strong style="color:var(--primary);">${producto.sap_code}</strong>
-                        <span style="font-size:11px; background:var(--primary); color:white; padding:2px 6px; border-radius:4px; margin-left:5px;">Cal. ${producto.calibre}</span>
+                        <strong style="color:var(--primary);">${producto.sap_code}</strong>${calibreTag}
+                        <span style="font-size:10px;color:var(--muted);margin-left:6px;">${producto.almacen || ''}</span>
                     </div>
                     <button class="btn btn-danger btn-sm" onclick="this.closest('.material-card-multiple').remove()" style="padding:2px 8px;">✕</button>
                 </div>
-                <div style="font-size:12px; color:var(--muted); margin-bottom:8px;">${producto.description}</div>
-                <div style="display:grid; grid-template-columns:1fr 1fr 1fr 1fr 1fr; gap:8px; font-size:11px;">
+                <div style="font-size:12px;color:var(--muted);margin-bottom:8px;">${producto.description}</div>
+                <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;font-size:11px;margin-bottom:8px;">
                     <div>
-                        <label style="display:block; color:var(--muted);">Largo</label>
-                        <input type="number" class="input-multi" data-field="largo" value="${producto.default_length_cm || 600}" style="width:100%; padding:4px;">
+                        <label style="display:block;color:var(--muted);margin-bottom:2px;">Largo (cm) ✏️</label>
+                        <input type="number" class="input-multi" data-field="largo" value="${producto.largo_cm || 600}" style="${inputStyle}">
                     </div>
                     <div>
-                        <label style="display:block; color:var(--muted);">Ancho</label>
-                        <input type="number" class="input-multi" data-field="ancho" value="${producto.default_width_cm || 30}" style="width:100%; padding:4px;">
+                        <label style="display:block;color:var(--muted);margin-bottom:2px;">Ancho (cm) ✏️</label>
+                        <input type="number" class="input-multi" data-field="ancho" value="${producto.ancho_cm || 30}" style="${inputStyle}">
                     </div>
                     <div>
-                        <label style="display:block; color:var(--muted);">Alto</label>
-                        <input type="number" class="input-multi" data-field="alto" value="${producto.default_height_cm || 30}" style="width:100%; padding:4px;">
-                    </div>
-                    <div>
-                        <label style="display:block; color:var(--muted);">Peso/Paq</label>
-                        <input type="number" class="input-multi" data-field="peso" value="${producto.default_weight_per_package || 0.605}" step="0.001" style="width:100%; padding:4px;">
-                    </div>
-                    <div>
-                        <label style="display:block; color:var(--muted);">Toneladas</label>
-                        <input type="number" class="input-multi" data-field="tons" value="12.5" step="0.1" style="width:100%; padding:4px;">
+                        <label style="display:block;color:var(--muted);margin-bottom:2px;">Alto (cm) ✏️</label>
+                        <input type="number" class="input-multi" data-field="alto" value="${producto.alto_cm || 15}" style="${inputStyle}">
                     </div>
                 </div>
-                <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
-                    <input type="checkbox" class="chk-diferido-multi" id="chkDif_${producto.sap_code}" style="width:16px; height:16px;">
-                    <label for="chkDif_${producto.sap_code}" style="font-size:11px; color:#ff6b6b;">📦 Diferido</label>
-                    <button class="btn btn-success btn-sm" onclick="agregarMaterialDesdeCard(this)" style="margin-left:auto; padding:4px 12px;">+ Agregar</button>
+                <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;margin-bottom:8px;">
+                    <div>
+                        <label style="display:block;color:var(--muted);margin-bottom:2px;">Peso/Paq (ton)</label>
+                        <input type="number" class="input-multi" data-field="peso" value="${item.peso || producto.peso_ton || ''}" step="0.001" style="${inputStyle}">
+                    </div>
+                    <div>
+                        <label style="display:block;color:var(--muted);margin-bottom:2px;">Toneladas a Enviar</label>
+                        <input type="number" class="input-multi" data-field="tons" value="${item.tons || ''}" step="0.1" style="${inputStyle}">
+                    </div>
+                </div>
+                <div style="display:flex;align-items:center;gap:8px;">
+                    <input type="checkbox" class="chk-diferido-multi" id="chkDif_${producto.sap_code}" style="width:15px;height:15px;">
+                    <label for="chkDif_${producto.sap_code}" style="font-size:11px;color:#ff6b6b;cursor:pointer;">Diferido</label>
+                    <button class="btn btn-success btn-sm" onclick="agregarMaterialDesdeCard(this)" style="margin-left:auto;padding:4px 12px;">+ Agregar</button>
                 </div>
             `;
             card.dataset.producto = JSON.stringify(producto);
             container.appendChild(card);
-            
+
         } catch (e) {
-            noEncontrados.push(sap);
+            noEncontrados.push(item);
         }
     }
-    
+
     $('listaMaterialesEncontrados').style.display = 'block';
-    
-    if (encontrados > 0) {
-        toast(`${encontrados} material(es) encontrado(s)`, 'success');
-    }
+
+    // Mostrar sección de no encontrados con opción de crear
     if (noEncontrados.length > 0) {
-        toast(`No encontrados: ${noEncontrados.join(', ')}`, 'warning');
+        const notFoundDiv = document.createElement('div');
+        notFoundDiv.style.cssText = 'background:rgba(239,68,68,0.08);border:1px solid #ef4444;border-radius:8px;padding:12px;margin-top:10px;';
+        notFoundDiv.innerHTML = `
+            <div style="font-weight:bold;color:#ef4444;margin-bottom:8px;font-size:12px;">⚠️ ${noEncontrados.length} clave(s) no encontrada(s) en el catálogo:</div>
+            ${noEncontrados.map(item => `
+                <div style="display:flex;justify-content:space-between;align-items:center;padding:5px 0;border-bottom:1px solid rgba(239,68,68,0.2);">
+                    <span style="font-family:monospace;font-size:12px;">${item.sap}</span>
+                    <button onclick="abrirCrearMaterialDesdeNoEncontrado('${item.sap}', ${item.peso || 0}, ${item.tons || 0})"
+                        style="font-size:11px;padding:3px 10px;background:var(--primary);color:white;border-radius:4px;border:none;cursor:pointer;">
+                        + Crear en catálogo
+                    </button>
+                </div>
+            `).join('')}
+        `;
+        container.appendChild(notFoundDiv);
     }
+
+    if (encontrados > 0) toast(`${encontrados} material(es) encontrado(s)`, 'success');
+    if (noEncontrados.length > 0) toast(`${noEncontrados.length} no encontrado(s) — ver abajo para crear`, 'warning');
 }
+
+function abrirCrearMaterialDesdeNoEncontrado(sap, peso, tons) {
+    closeModal('modalBusquedaMultiple');
+    if ($('newMatSap')) $('newMatSap').value = sap;
+    if ($('newMatKgPaq') && peso > 0) $('newMatKgPaq').value = peso;
+    openModal('modalMaterial');
+}
+window.abrirCrearMaterialDesdeNoEncontrado = abrirCrearMaterialDesdeNoEncontrado;
 
 async function agregarMaterialDesdeCard(btn) {
     const card = btn.closest('.material-card-multiple');
@@ -644,50 +667,33 @@ function removeAditamento(index) {
 // ==================== LOADS ====================
 async function createLoad() {
     const fecha = utils.getToday();
-    
-    // Obtener el siguiente número del servidor
-    let numero;
-    try {
-        const nextNum = await api.getNextLoadNumber();
-        numero = nextNum.next_number;
-    } catch (e) {
-        numero = `TY-${new Date().getFullYear()}-1`;
-    }
-    
+
     // Solo crear estado local, NO guardar en BD todavía
-    state.loadId = null;  // Sin ID porque no está guardado
-    state.load = { 
-        id: null, 
-        fecha, 
-        numero_carga: numero, 
+    // El número se asigna solo cuando el usuario guarda explícitamente
+    state.loadId = null;
+    state.load = {
+        id: null,
+        fecha,
+        numero_carga: null,
         status: 'DRAFT',
-        isNew: true  // Marcar como nueva (no guardada)
+        isNew: true,
+        userSaved: false
     };
     state.placements = [];
     state.bedsStats = [];
     state.materials = [];
     state.aditamentos = [];
-    
-    console.log('Nueva carga creada localmente (sin guardar):', numero);
+
+    console.log('Nueva carga iniciada localmente (sin número asignado)');
     return true;
 }
 
 async function saveLoadToDatabase() {
     // Crear la carga en la BD si es nueva
     const fecha = state.load?.fecha || utils.getToday();
-    
-    // Usar el número que ya está en state.load (ya viene del servidor)
-    let numero = state.load?.numero_carga;
-    
-    // Si por alguna razón no hay número, obtenerlo del servidor
-    if (!numero) {
-        try {
-            const nextNum = await api.getNextLoadNumber();
-            numero = nextNum.next_number;
-        } catch (e) {
-            numero = `TY-${new Date().getFullYear()}-1`;
-        }
-    }
+
+    // Usar el número del state; si no hay (carga no guardada por usuario), usar placeholder
+    const numero = state.load?.numero_carga || `BORRADOR-${fecha}-${Date.now()}`;
     
     try {
         const res = await api.createLoad({ fecha, numero_carga: numero });
@@ -780,7 +786,12 @@ async function saveMetadataOnly() {
         const updateData = {
             truck_id: state.truck?.id
         };
-        
+
+        // Incluir número de carga definitivo
+        if (state.load?.numero_carga) {
+            updateData.numero_carga = state.load.numero_carga;
+        }
+
         // Solo agregar metadatos, NO enviar items
         if (state.saveData) {
             updateData.numero_viaje = state.saveData.numeroViaje;
@@ -872,62 +883,91 @@ async function setOptimizeMode(mode) {
     }
 }
 
-// Abrir modal de prioridades
+// Abrir modal de prioridades (por familia: almacén + calibre)
 function openPriorityModal() {
-    // Obtener almacenes únicos de los materiales
-    const almacenes = [...new Set(state.materials.map(m => m.almacen).filter(a => a))];
-    
-    if (almacenes.length === 0) {
+    if (state.materials.length === 0) {
         toast('Agrega materiales primero para configurar prioridades', 'warning');
         return;
     }
-    
-    // Crear lista de prioridades
+
+    // Generar grupos únicos (almacén, calibre) desde los materiales cargados
+    const groupsMap = {};
+    state.materials.forEach(m => {
+        const almacen = m.almacen || 'Sin almacén';
+        const calibre = (m.calibre && m.calibre > 0) ? m.calibre : null;
+        const key = calibre !== null ? `${almacen}||${calibre}` : almacen;
+        if (!groupsMap[key]) {
+            groupsMap[key] = { key, almacen, calibre, count: 0 };
+        }
+        groupsMap[key].count++;
+    });
+
+    const groups = Object.values(groupsMap);
+    if (groups.length === 0) {
+        toast('No hay grupos de materiales para priorizar', 'warning');
+        return;
+    }
+
+    // Ordenar por prioridad existente, luego por almacén+calibre
+    groups.sort((a, b) => {
+        const prioA = state.almacenPriorities.find(p => p.almacen === a.almacen && p.calibre === a.calibre)?.priority || 999;
+        const prioB = state.almacenPriorities.find(p => p.almacen === b.almacen && p.calibre === b.calibre)?.priority || 999;
+        if (prioA !== prioB) return prioA - prioB;
+        if (a.almacen !== b.almacen) return a.almacen.localeCompare(b.almacen);
+        return (a.calibre || 0) - (b.calibre || 0);
+    });
+
     const container = $('almacenPriorityList');
     container.innerHTML = '';
-    
-    // Ordenar por prioridad existente o alfabéticamente
-    const sortedAlmacenes = almacenes.sort((a, b) => {
-        const prioA = state.almacenPriorities.find(p => p.almacen === a)?.priority || 999;
-        const prioB = state.almacenPriorities.find(p => p.almacen === b)?.priority || 999;
-        return prioA - prioB;
-    });
-    
-    sortedAlmacenes.forEach((almacen, idx) => {
-        const existingPrio = state.almacenPriorities.find(p => p.almacen === almacen);
+    const numGroups = groups.length;
+
+    groups.forEach((group, idx) => {
+        const existingPrio = state.almacenPriorities.find(p => p.almacen === group.almacen && p.calibre === group.calibre);
         const priority = existingPrio ? existingPrio.priority : idx + 1;
-        
+
+        const calibreTag = group.calibre !== null
+            ? `<span style="font-size:11px;background:var(--surface);border:1px solid var(--border);padding:1px 6px;border-radius:4px;margin-left:6px;">Cal. ${group.calibre}</span>`
+            : '';
+        const countTag = `<span style="font-size:10px;color:var(--muted);margin-left:6px;">(${group.count} paq)</span>`;
+
         const div = document.createElement('div');
-        div.className = 'priority-item';
+        div.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;';
         div.innerHTML = `
-            <span class="priority-almacen">${almacen}</span>
-            <select class="priority-select" data-almacen="${almacen}">
-                ${Array.from({length: almacenes.length}, (_, i) => 
+            <div style="font-size:12px;">
+                <span style="font-weight:600;">${group.almacen}</span>${calibreTag}${countTag}
+            </div>
+            <select class="priority-select"
+                data-almacen="${group.almacen}"
+                data-calibre="${group.calibre !== null ? group.calibre : ''}"
+                style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:12px;">
+                ${Array.from({length: numGroups}, (_, i) =>
                     `<option value="${i+1}" ${priority === i+1 ? 'selected' : ''}>${i+1}</option>`
                 ).join('')}
             </select>
         `;
         container.appendChild(div);
     });
-    
+
     openModal('modalPriority');
 }
 
-// Guardar prioridades
+// Guardar prioridades (incluye calibre por familia)
 function savePriorities() {
     const selects = document.querySelectorAll('.priority-select');
     state.almacenPriorities = [];
-    
+
     selects.forEach(sel => {
+        const calibreVal = sel.dataset.calibre;
+        const calibre = (calibreVal !== undefined && calibreVal !== '') ? parseFloat(calibreVal) : null;
         state.almacenPriorities.push({
             almacen: sel.dataset.almacen,
+            calibre: calibre,
             priority: parseInt(sel.value)
         });
     });
-    
-    // Ordenar por prioridad
+
     state.almacenPriorities.sort((a, b) => a.priority - b.priority);
-    
+
     console.log('Prioridades guardadas:', state.almacenPriorities);
     toast('Prioridades guardadas', 'success');
     closeModal('modalPriority');
@@ -1074,7 +1114,7 @@ async function loadCurrentLoad() {
         const data = await api.getLoad(state.loadId);
         console.log('Carga recibida del servidor:', data);
         
-        state.load = data;
+        state.load = { ...data, userSaved: true };
         state.placements = data.placements || [];
         state.bedNotes = data.bed_notes || [];
         
@@ -1299,12 +1339,25 @@ async function confirmSave() {
     const numeroViaje = $('saveNumViaje')?.value.trim() || '';
     const numeroEmbarque = $('saveNumEmbarque')?.value.trim() || '';
     const cliente = $('saveCliente')?.value.trim() || '';
-    
-    // Guardar en state para usar en saveLoad
+
+    // Asignar número definitivo de carga solo si no tiene uno válido aún
+    const tieneNumero = state.load?.numero_carga && !state.load.numero_carga.startsWith('BORRADOR');
+    if (!tieneNumero) {
+        try {
+            const nextNum = await api.getNextLoadNumber();
+            if (state.load) state.load.numero_carga = nextNum.next_number;
+        } catch (e) {
+            if (state.load) state.load.numero_carga = `TY-${new Date().getFullYear()}-1`;
+        }
+    }
+
+    if (state.load) state.load.userSaved = true;
+
+    // Guardar en state para usar en saveLoad / saveMetadataOnly
     state.saveData = { numeroViaje, numeroEmbarque, cliente };
-    
+
     closeModal('modalGuardar');
-    
+
     // Si ya hay placements (carga optimizada), solo guardar metadatos
     // para no borrar los placements
     if (state.placements && state.placements.length > 0) {
@@ -1367,32 +1420,32 @@ function bindEvents() {
     $('btnAddAdit')?.addEventListener('click', addAditamento);
     
     $('btnCrearCarga')?.addEventListener('click', async () => {
-        // Obtener el siguiente número de carga del servidor
-        let numeroCarga;
-        try {
-            const nextNum = await api.getNextLoadNumber();
-            numeroCarga = nextNum.next_number;
-        } catch (e) {
-            // Fallback si hay error - usar número 1
-            numeroCarga = `TY-${new Date().getFullYear()}-1`;
+        // Si hay un borrador auto-guardado (no guardado explícitamente por el usuario), eliminarlo
+        if (state.loadId && !state.load?.userSaved) {
+            try {
+                await api.deleteLoad(state.loadId);
+            } catch (e) {
+                // Ignorar errores al limpiar borrador
+            }
         }
-        
-        // Limpiar estado para nueva carga - NO guardar en BD
+
+        // Limpiar estado local — NO guardar en BD, sin asignar número
         state.loadId = null;
         state.load = {
             id: null,
             fecha: utils.getToday(),
-            numero_carga: numeroCarga,
+            numero_carga: null,
             status: 'DRAFT',
-            isNew: true
+            isNew: true,
+            userSaved: false
         };
         state.materials = [];
         state.aditamentos = [];
         state.placements = [];
         state.bedsStats = [];
         state.product = null;
-        
-        toast('Nueva carga iniciada (sin guardar)', 'info');
+
+        toast('Nueva carga iniciada', 'info');
         updateAllUI();
         render3D();
     });

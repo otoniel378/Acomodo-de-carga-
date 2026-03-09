@@ -56,13 +56,13 @@ DEFAULT_TRUCKS = [
         "platforms": 1
     },
     {
-        "id": "FULL", 
-        "name": "Full", 
+        "id": "FULL",
+        "name": "Full",
         "beds_count": 7,  # 7 camas por plana
         "length_mm": 12050,  # 12m cada plana
         "width_mm": 2400,    # 2.4m
         "height_mm": 2900,   # 2.9m altura de carga
-        "max_payload_kg": 50000,  # 50 ton total
+        "max_payload_kg": 25500,  # 25.5 ton POR PLANA (total = 51 ton en 2 planas)
         "is_dual_platform": True,  # TIENE 2 PLANAS
         "platforms": 2,
         "platform_gap_mm": 500  # Separación visual entre planas
@@ -85,7 +85,7 @@ DEFAULT_TRUCKS = [
         "length_mm": 7500,   # 7.5m cada plana
         "width_mm": 2400,    # 2.4m
         "height_mm": 2900,   # 2.9m altura de carga
-        "max_payload_kg": 36000,  # 36 ton total (18 x 2)
+        "max_payload_kg": 18000,  # 18 ton POR PLANA (total = 36 ton en 2 tortons)
         "is_dual_platform": True,  # TIENE 2 PLANAS (2 Tortons)
         "platforms": 2,
         "platform_gap_mm": 500  # Separación visual entre planas

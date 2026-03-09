@@ -137,6 +137,7 @@ class LoadCreate(BaseModel):
 
 class LoadUpdate(BaseModel):
     truck_id: Optional[str] = None
+    numero_carga: Optional[str] = None
     items: Optional[List[LoadItemBase]] = None
     aditamentos: Optional[List[AditamentoBase]] = None
     numero_viaje: Optional[str] = None
@@ -187,6 +188,7 @@ class LoadSearchRequest(BaseModel):
 # ==================== OPTIMIZE ====================
 class AlmacenPriority(BaseModel):
     almacen: str
+    calibre: Optional[float] = None  # None = aplica a todos los calibres de este almacén
     priority: int  # 1 es el más importante
 
 class OptimizeRequest(BaseModel):
