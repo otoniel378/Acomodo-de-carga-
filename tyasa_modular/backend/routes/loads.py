@@ -509,9 +509,9 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                 for idx, bed_num in enumerate(sorted(all_beds.keys()), 1):
                     bed_placements = all_beds[bed_num]
                     bed_label = f"Cama {idx}" if not is_dual else f"P{plat_num}-Cama {idx}"
-                    # Contar paquetes por zona
-                    n_a = sum(1 for p in bed_placements if p.x < 6025)
-                    n_b = sum(1 for p in bed_placements if p.x >= 6025)
+                    # Contar paquetes por zona usando bed_zone guardado en optimización
+                    n_a = sum(1 for p in bed_placements if (p.bed_zone or 'A') == 'A')
+                    n_b = sum(1 for p in bed_placements if (p.bed_zone or 'A') == 'B')
                     zone_info = f"  [Zona A: {n_a} paq  |  Zona B: {n_b} paq]"
                     elements.append(Paragraph(f"{bed_label} - {len(bed_placements)} paquetes{zone_info}", heading_style))
 
@@ -524,7 +524,7 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                     for bidx, p in enumerate(bed_placements, 1):
                         item = next((i for i in load.items if i.id == p.load_item_id), None)
                         if item:
-                            zona = "B" if p.x >= 6025 else "A"
+                            zona = p.bed_zone or ("B" if p.x >= 6025 else "A")
                             bed_data.append([str(bidx), str(item.sap_code)[:10], (item.description or "")[:28],
                                 f"{p.length_used:.0f}×{p.width_used:.0f}×{p.height_used:.0f}",
                                 f"{(item.kg_por_paquete or 0)/1000:.2f}", str(int(item.calibre)) if item.calibre else "—",
@@ -792,22 +792,37 @@ def create_bed_view_with_coords(truck, bed_placements, items, bed_num, platform_
         d.add(String(offset_x - 25, z_pos - 2, f"{z_mm}", fontSize=7, fillColor=colors.HexColor("#6b7280")))
     
     # Etiquetas de ejes
-    d.add(String(offset_x + truck_w / 2, offset_y + truck_h + 22, "X (mm)", 
+    d.add(String(offset_x + truck_w / 2, offset_y + truck_h + 22, "X (mm)",
                  fontSize=8, fillColor=colors.HexColor("#9ca3af")))
-    
-    # Etiqueta FRENTE vertical
-    d.add(String(offset_x - 40, offset_y + truck_h / 2, "C", 
+
+    # Etiqueta FRENTE vertical (CONCHA = cab side, X=0)
+    d.add(String(offset_x - 40, offset_y + truck_h / 2, "C",
                  fontSize=7, fillColor=colors.HexColor("#22c55e")))
-    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 9, "O", 
+    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 9, "O",
                  fontSize=7, fillColor=colors.HexColor("#22c55e")))
-    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 18, "N", 
+    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 18, "N",
                  fontSize=7, fillColor=colors.HexColor("#22c55e")))
-    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 27, "C", 
+    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 27, "C",
                  fontSize=7, fillColor=colors.HexColor("#22c55e")))
-    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 36, "H", 
+    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 36, "H",
                  fontSize=7, fillColor=colors.HexColor("#22c55e")))
-    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 45, "A", 
+    d.add(String(offset_x - 40, offset_y + truck_h / 2 - 45, "A",
                  fontSize=7, fillColor=colors.HexColor("#22c55e")))
+
+    # Etiquetas LADO PILOTO (IZQUIERDO) y LADO COPILOTO (DERECHO)
+    # Vista superior: Z=max → arriba del diagrama = LADO PILOTO (IZQUIERDO)
+    #                 Z=0   → abajo del diagrama  = LADO COPILOTO (DERECHO)
+    right_label_x = offset_x + truck_w + 4
+    # LADO PILOTO arriba (top edge = Z máximo = lado izquierdo del camión)
+    d.add(String(right_label_x, offset_y + truck_h - 6, "LADO PILOTO",
+                 fontSize=6, fillColor=colors.HexColor("#22c55e")))
+    d.add(String(right_label_x, offset_y + truck_h - 13, "(IZQUIERDO)",
+                 fontSize=5, fillColor=colors.HexColor("#22c55e")))
+    # LADO COPILOTO abajo (bottom edge = Z=0 = lado derecho del camión)
+    d.add(String(right_label_x, offset_y + 9, "LADO COPILOTO",
+                 fontSize=6, fillColor=colors.HexColor("#f59e0b")))
+    d.add(String(right_label_x, offset_y + 2, "(DERECHO)",
+                 fontSize=5, fillColor=colors.HexColor("#f59e0b")))
     
     # Línea divisoria Zona A / Zona B para camiones largos
     is_long = truck.length_mm >= 11000
@@ -829,7 +844,7 @@ def create_bed_view_with_coords(truck, bed_placements, items, bed_num, platform_
         calibre = item.calibre if item else 0
 
         # Zona B: color ámbar en lugar del color por calibre
-        is_zone_b = is_long and p.x >= ZONE_LIMIT
+        is_zone_b = is_long and (p.bed_zone or ("B" if p.x >= ZONE_LIMIT else "A")) == "B"
         if is_zone_b:
             pkg_color = "#d97706"
         else:
