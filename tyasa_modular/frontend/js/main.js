@@ -206,13 +206,14 @@ async function buscarMaterialesMultiple() {
                 <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;font-size:11px;margin-bottom:8px;">
                     <div>
                         <label style="display:block;color:var(--muted);margin-bottom:2px;">Peso/Paq (ton)</label>
-                        <input type="number" class="input-multi" data-field="peso" value="${item.peso || producto.peso_ton || ''}" step="0.001" style="${inputStyle}">
+                        <input type="number" class="input-multi" data-field="peso" value="${item.peso || producto.peso_ton || ''}" step="0.001" style="${inputStyle}" oninput="updateCardPreview(this)">
                     </div>
                     <div>
                         <label style="display:block;color:var(--muted);margin-bottom:2px;">Toneladas a Enviar</label>
-                        <input type="number" class="input-multi" data-field="tons" value="${item.tons || ''}" step="0.1" style="${inputStyle}">
+                        <input type="number" class="input-multi" data-field="tons" value="${item.tons || ''}" step="0.1" style="${inputStyle}" oninput="updateCardPreview(this)">
                     </div>
                 </div>
+                <div class="card-calc-preview" style="display:none;font-size:11px;background:var(--card);border-radius:4px;padding:6px 8px;margin-bottom:8px;border-left:3px solid var(--primary);"></div>
                 <div style="display:flex;align-items:center;gap:8px;">
                     <input type="checkbox" class="chk-diferido-multi" id="chkDif_${producto.sap_code}" style="width:15px;height:15px;">
                     <label for="chkDif_${producto.sap_code}" style="font-size:11px;color:#ff6b6b;cursor:pointer;">Diferido</label>
@@ -221,6 +222,12 @@ async function buscarMaterialesMultiple() {
             `;
             card.dataset.producto = JSON.stringify(producto);
             container.appendChild(card);
+
+            // Mostrar preview si ya hay peso y toneladas prellenados
+            const tonsInput = card.querySelector('[data-field="tons"]');
+            if (tonsInput && parseFloat(tonsInput.value) > 0) {
+                updateCardPreview(tonsInput);
+            }
 
         } catch (e) {
             noEncontrados.push(item);
@@ -260,6 +267,47 @@ function abrirCrearMaterialDesdeNoEncontrado(sap, peso, tons) {
 }
 window.abrirCrearMaterialDesdeNoEncontrado = abrirCrearMaterialDesdeNoEncontrado;
 
+function updateCardPreview(input) {
+    const card = input.closest('.material-card-multiple');
+    if (!card) return;
+    const preview = card.querySelector('.card-calc-preview');
+    if (!preview) return;
+
+    const peso = parseFloat(card.querySelector('[data-field="peso"]').value) || 0;
+    const tons = parseFloat(card.querySelector('[data-field="tons"]').value) || 0;
+
+    if (peso <= 0 || tons <= 0) {
+        preview.style.display = 'none';
+        return;
+    }
+
+    const kgPaq = peso * 1000;
+    const kgTotal = tons * 1000;
+    let numPaq = Math.floor(kgTotal / kgPaq);
+    if (numPaq <= 0) {
+        preview.style.display = 'none';
+        return;
+    }
+
+    const kgSobrante = kgTotal - (numPaq * kgPaq);
+    const kgFaltante = kgSobrante > 0 ? kgPaq - kgSobrante : 0;
+    const autoCompletarHabilitado = $('chkAutoCompletarLista')?.checked !== false;
+    const autoCompletar = kgSobrante > 0 && kgFaltante < 400 && autoCompletarHabilitado;
+    const numPaqFinal = autoCompletar ? numPaq + 1 : numPaq;
+    const tonEnPaquetes = (numPaqFinal * kgPaq) / 1000;
+
+    let html = `<span style="color:var(--text-primary);">📦 <b>${numPaqFinal}</b> paquete(s) · <b>${tonEnPaquetes.toFixed(3)}</b> t</span>`;
+    if (autoCompletar) {
+        html += `&nbsp;<span style="color:var(--green);">⚡ +1 auto-completado (+${kgFaltante.toFixed(1)} kg)</span>`;
+    } else if (kgSobrante > 0) {
+        html += `&nbsp;<span style="color:var(--amber);">⚠️ Sobrante: ${(kgSobrante/1000).toFixed(3)} t</span>`;
+    }
+
+    preview.innerHTML = html;
+    preview.style.display = 'block';
+}
+window.updateCardPreview = updateCardPreview;
+
 async function agregarMaterialDesdeCard(btn) {
     const card = btn.closest('.material-card-multiple');
     const producto = JSON.parse(card.dataset.producto);
@@ -277,7 +325,8 @@ async function agregarMaterialDesdeCard(btn) {
     let numPaquetes = Math.floor(kgTotal / kgPaq);
     const kgSobrante = kgTotal - (numPaquetes * kgPaq);
     const kgFaltante = kgSobrante > 0 ? kgPaq - kgSobrante : 0;
-    const autoCompletar = kgSobrante > 0 && kgFaltante < 400;
+    const autoCompletarHabilitadoLista = $('chkAutoCompletarLista')?.checked !== false;
+    const autoCompletar = kgSobrante > 0 && kgFaltante < 400 && autoCompletarHabilitadoLista;
     if (autoCompletar) numPaquetes += 1;
     const tonsPorPaquete = peso;
 
@@ -604,7 +653,8 @@ function addMaterial() {
     const kgEnPaquetesBase = numPaq * kgPaq;
     const kgSobrante = kgTotal - kgEnPaquetesBase;
     const kgFaltante = kgSobrante > 0 ? kgPaq - kgSobrante : 0;
-    const autoCompletar = kgSobrante > 0 && kgFaltante < 400;
+    const autoCompletarHabilitado = $('chkAutoCompletar')?.checked !== false;
+    const autoCompletar = kgSobrante > 0 && kgFaltante < 400 && autoCompletarHabilitado;
     if (autoCompletar) numPaq += 1;
 
     // CREAR UN MATERIAL POR CADA PAQUETE INDIVIDUAL

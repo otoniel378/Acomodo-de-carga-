@@ -91,6 +91,13 @@
                             📦 Diferido (va al final del acomodo, última cama)
                         </label>
                     </div>
+                    <!-- Checkbox Auto-completar -->
+                    <div class="mt-2" style="display: flex; align-items: center; gap: 10px;">
+                        <input type="checkbox" id="chkAutoCompletar" checked style="width: 20px; height: 20px; cursor: pointer;">
+                        <label for="chkAutoCompletar" style="cursor: pointer; color: var(--green); font-weight: bold;">
+                            ⚡ Auto-completar paquete (si falta menos de 400 kg)
+                        </label>
+                    </div>
                 </div>
                 
                 <!-- Peso y Toneladas a enviar -->
@@ -739,6 +746,13 @@
                         rows="8"
                         style="width:100%;padding:6px 8px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:4px;color:var(--text-primary);font-size:12px;font-family:monospace;resize:vertical;box-sizing:border-box;line-height:1.8;"></textarea>
                 </div>
+            </div>
+            <!-- Checkbox Auto-completar lista -->
+            <div style="display: flex; align-items: center; gap: 10px; margin-bottom: 10px;">
+                <input type="checkbox" id="chkAutoCompletarLista" checked style="width: 18px; height: 18px; cursor: pointer;">
+                <label for="chkAutoCompletarLista" style="cursor: pointer; color: var(--green); font-weight: bold; font-size: 13px;">
+                    ⚡ Auto-completar paquete (si falta menos de 400 kg)
+                </label>
             </div>
             <button class="btn btn-primary w-full" id="btnBuscarMultiple">🔍 Buscar Materiales</button>
 

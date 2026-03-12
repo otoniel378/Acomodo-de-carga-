@@ -155,7 +155,8 @@ function updateCalcPreview() {
     const kgEnPaquetesBase = numPaq * kgPaq;
     const kgSobrante = kgTotal - kgEnPaquetesBase;
     const kgFaltante = kgSobrante > 0 ? kgPaq - kgSobrante : 0;
-    const autoCompletar = kgSobrante > 0 && kgFaltante < 400;
+    const autoCompletarHabilitado = $('chkAutoCompletar')?.checked !== false;
+    const autoCompletar = kgSobrante > 0 && kgFaltante < 400 && autoCompletarHabilitado;
     const numPaqFinal = autoCompletar ? numPaq + 1 : numPaq;
     const kgEnPaquetes = numPaqFinal * kgPaq;
     const tonsSobrante = kgSobrante / 1000;
