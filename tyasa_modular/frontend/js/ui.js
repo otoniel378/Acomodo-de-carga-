@@ -151,22 +151,31 @@ function updateCalcPreview() {
     
     const kgPaq = pesoTon * 1000;  // Convertir ton a kg
     const kgTotal = tons * 1000;
-    const numPaq = Math.floor(kgTotal / kgPaq);
-    const kgEnPaquetes = numPaq * kgPaq;
-    const kgSobrante = kgTotal - kgEnPaquetes;
+    let numPaq = Math.floor(kgTotal / kgPaq);
+    const kgEnPaquetesBase = numPaq * kgPaq;
+    const kgSobrante = kgTotal - kgEnPaquetesBase;
+    const kgFaltante = kgSobrante > 0 ? kgPaq - kgSobrante : 0;
+    const autoCompletar = kgSobrante > 0 && kgFaltante < 400;
+    const numPaqFinal = autoCompletar ? numPaq + 1 : numPaq;
+    const kgEnPaquetes = numPaqFinal * kgPaq;
     const tonsSobrante = kgSobrante / 1000;
-    
+
     preview.style.display = 'block';
     preview.innerHTML = `
         <div class="calc-row">
             <span>Paquetes completos:</span>
-            <b>${numPaq}</b>
+            <b>${numPaqFinal}</b>
         </div>
         <div class="calc-row">
             <span>Toneladas en paquetes:</span>
             <b>${(kgEnPaquetes/1000).toFixed(3)} t</b>
         </div>
-        ${kgSobrante > 0 ? `
+        ${autoCompletar ? `
+        <div class="calc-row" style="color:var(--green)">
+            <span>✅ Auto-completado (+${kgFaltante.toFixed(1)} kg para paquete extra):</span>
+            <b>+1 paquete</b>
+        </div>
+        ` : kgSobrante > 0 ? `
         <div class="calc-row sobrante">
             <span>⚠️ Sobrante (no completa paquete):</span>
             <b>${tonsSobrante.toFixed(3)} t (${kgSobrante.toFixed(1)} kg)</b>
@@ -211,10 +220,13 @@ function renderMaterialsTable() {
         // Color basado en calibre
         const color = getColorByCalibre(m.calibre);
         
+        const notaAutoComp = m.auto_completado_kg
+            ? `<span title="Auto-completado: +${m.auto_completado_kg.toFixed(1)} kg para completar paquete" style="color:var(--green);font-weight:bold;margin-left:3px;">⚡</span>`
+            : '';
         return `
         <tr>
             <td><span class="sap-badge" style="border-left:3px solid ${color.hex}">${m.sap_code}</span></td>
-            <td title="${m.description}">${(m.description || '').slice(0, 10)}${m.description?.length > 10 ? '...' : ''}</td>
+            <td title="${m.description}">${(m.description || '').slice(0, 10)}${m.description?.length > 10 ? '...' : ''}${notaAutoComp}</td>
             <td>${tons.toFixed(2)}</td>
             <td><b>${calibre}</b></td>
             <td>${almacen}</td>

@@ -272,10 +272,17 @@ async function agregarMaterialDesdeCard(btn) {
     const isDiferido = card.querySelector('.chk-diferido-multi')?.checked || false;
     
     // Crear material igual que en addMaterial
-    const numPaquetes = Math.floor((tons * 1000) / (peso * 1000));
+    const kgPaq = peso * 1000;
+    const kgTotal = tons * 1000;
+    let numPaquetes = Math.floor(kgTotal / kgPaq);
+    const kgSobrante = kgTotal - (numPaquetes * kgPaq);
+    const kgFaltante = kgSobrante > 0 ? kgPaq - kgSobrante : 0;
+    const autoCompletar = kgSobrante > 0 && kgFaltante < 400;
+    if (autoCompletar) numPaquetes += 1;
     const tonsPorPaquete = peso;
-    
+
     for (let i = 0; i < numPaquetes; i++) {
+        const esAutoCompletado = autoCompletar && i === numPaquetes - 1;
         const material = {
             sap_code: producto.sap_code,
             description: producto.description,
@@ -285,27 +292,30 @@ async function agregarMaterialDesdeCard(btn) {
             largo_mm: largo * 10,
             ancho_mm: ancho * 10,
             alto_mm: alto * 10,
-            kg_por_paquete: peso * 1000,
+            kg_por_paquete: kgPaq,
             tons_solicitadas: tonsPorPaquete,
-            is_deferred: isDiferido
+            is_deferred: isDiferido,
+            auto_completado_kg: esAutoCompletado ? kgFaltante : 0
         };
         state.materials.push(material);
     }
-    
+
     // Actualizar UI
     renderMaterialsTable();
     updateAllUI();
     render3D();
     draw2D(state.selectedBed || 1);
-    
+
     // Marcar como agregado
     card.style.opacity = '0.5';
     btn.textContent = '✓ Agregado';
     btn.disabled = true;
     btn.classList.remove('btn-success');
     btn.classList.add('btn-secondary');
-    
-    toast(`${numPaquetes} paquete(s) de ${producto.sap_code} agregados`, 'success');
+
+    let msgCard = `${numPaquetes} paquete(s) de ${producto.sap_code} agregados`;
+    if (autoCompletar) msgCard += ` · Auto-completado: +${kgFaltante.toFixed(1)} kg para paquete extra`;
+    toast(msgCard, 'success');
 }
 
 function onTruckChange() {
@@ -587,15 +597,19 @@ function addMaterial() {
     
     const kgPaq = pesoTon * 1000;  // Convertir ton a kg
     const kgTotal = tons * 1000;
-    const numPaq = Math.floor(kgTotal / kgPaq);
-    
+    let numPaq = Math.floor(kgTotal / kgPaq);
+
     if (numPaq <= 0) return toast(`Toneladas menores a un paquete (${pesoTon} ton)`, 'error');
-    
-    const kgEnPaquetes = numPaq * kgPaq;
-    const kgSobrante = kgTotal - kgEnPaquetes;
-    
+
+    const kgEnPaquetesBase = numPaq * kgPaq;
+    const kgSobrante = kgTotal - kgEnPaquetesBase;
+    const kgFaltante = kgSobrante > 0 ? kgPaq - kgSobrante : 0;
+    const autoCompletar = kgSobrante > 0 && kgFaltante < 400;
+    if (autoCompletar) numPaq += 1;
+
     // CREAR UN MATERIAL POR CADA PAQUETE INDIVIDUAL
     for (let i = 0; i < numPaq; i++) {
+        const esAutoCompletado = autoCompletar && i === numPaq - 1;
         state.materials.push({
             id: Date.now() + i,  // ID único para cada paquete
             sap_code: p.sap_code,
@@ -612,24 +626,27 @@ function addMaterial() {
             kg_por_paquete: kgPaq,
             num_paquetes: 1,  // Cada entrada es 1 paquete
             paquete_index: i + 1,  // Índice del paquete
-            is_deferred: isDiferido  // Si es diferido
+            is_deferred: isDiferido,  // Si es diferido
+            auto_completado_kg: esAutoCompletado ? kgFaltante : 0  // Kg auto-completados
         });
     }
-    
+
     console.log('Materiales después de agregar:', state.materials);
-    
+
     // Limpiar placements porque cambió la carga
     state.placements = [];
-    
+
     $('tons').value = '';
     $('pesoPaquete').value = '';
     if ($('chkDiferido')) $('chkDiferido').checked = false;  // Limpiar checkbox
     const preview = $('calcPreview');
     if (preview) preview.style.display = 'none';
-    
-    // Mostrar mensaje con info del sobrante si hay
+
+    // Mostrar mensaje con info
     let msg = `${numPaq} paquetes agregados (${largoCm}×${anchoCm}×${altoCm} cm)`;
-    if (kgSobrante > 0) {
+    if (autoCompletar) {
+        msg += ` · Auto-completado: +${kgFaltante.toFixed(1)} kg para paquete extra`;
+    } else if (kgSobrante > 0) {
         msg += ` · Sobrante: ${(kgSobrante/1000).toFixed(3)} ton`;
     }
     toast(msg, 'success');
