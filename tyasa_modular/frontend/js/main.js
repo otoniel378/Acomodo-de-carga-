@@ -72,7 +72,8 @@ async function init() {
     updateAllUI();
     render3D();
     draw2D(1);
-    
+    loadLearningStats();
+
     console.log('Eventos configurados');
 }
 
@@ -1156,7 +1157,10 @@ async function optimize() {
         draw2D(state.selectedBed);
         
         console.log('=== FIN OPTIMIZACIÓN ===');
-        
+
+        // Habilitar botón de verificar ahora que hay placements
+        enableVerifyButton(true);
+
         // Mostrar mensaje con sin colocar si hay
         const notPlaced = state.placements.filter(p => !p.placed).length;
         if (notPlaced > 0) {
@@ -1258,7 +1262,23 @@ async function loadCurrentLoad() {
         render3D();
         draw2D(state.selectedBed);
         renderBedsTabs();
-        
+
+        // Botón verificar: habilitado si hay placements y no fue verificada ya
+        const isVerified = data.status === 'VERIFIED';
+        const hasPlaced = state.placements.some(p => p.placed);
+        const btn = $('btnVerificarAprender');
+        if (btn) {
+            if (isVerified) {
+                btn.textContent = '✅ Ya verificada';
+                btn.disabled = true;
+                btn.style.opacity = '0.6';
+                btn.style.cursor = 'not-allowed';
+            } else {
+                btn.textContent = '✅ Verificar y Aprender';
+                enableVerifyButton(hasPlaced);
+            }
+        }
+
     } catch (e) {
         console.error('Error cargando:', e);
         toast('Error al cargar: ' + e.message, 'error');
@@ -1512,6 +1532,11 @@ function bindEvents() {
         state.bedsStats = [];
         state.product = null;
 
+        // Resetear botón verificar
+        const btnV = $('btnVerificarAprender');
+        if (btnV) { btnV.textContent = '✅ Verificar y Aprender'; }
+        enableVerifyButton(false);
+
         toast('Nueva carga iniciada', 'info');
         updateAllUI();
         render3D();
@@ -1527,6 +1552,8 @@ function bindEvents() {
     $('btnConfigPriority')?.addEventListener('click', openPriorityModal);
     $('btnSavePriority')?.addEventListener('click', savePriorities);
     
+    $('btnVerificarAprender')?.addEventListener('click', verifyLoad);
+
     $('btnConsultar')?.addEventListener('click', () => {
         state.searchTab = 'fecha';
         switchSearchTab('fecha');
@@ -1671,6 +1698,75 @@ async function loadBedNote() {
 // Exportar función para llamarla al cambiar de cama
 window.loadBedNote = loadBedNote;
 
+// ==================== APRENDIZAJE ====================
+
+function enableVerifyButton(enabled) {
+    const btn = $('btnVerificarAprender');
+    if (!btn) return;
+    if (enabled) {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        btn.style.cursor = 'pointer';
+        btn.title = 'Guardar este acomodo para que el sistema aprenda de él';
+    } else {
+        btn.disabled = true;
+        btn.style.opacity = '0.5';
+        btn.style.cursor = 'not-allowed';
+        btn.title = 'Optimiza la carga primero para habilitar esta opción';
+    }
+}
+
+async function verifyLoad() {
+    if (!state.loadId) return toast('No hay carga guardada', 'error');
+    if (!state.placements || state.placements.length === 0) return toast('Optimiza primero antes de verificar', 'error');
+
+    const btn = $('btnVerificarAprender');
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Aprendiendo...'; }
+
+    try {
+        const res = await api.verifyLoad(state.loadId);
+        toast(`✅ Aprendido: ${res.patterns_updated} grupos de materiales · ${res.packages_learned} paquetes`, 'success');
+
+        // Actualizar estado local
+        if (state.load) state.load.status = 'VERIFIED';
+        updateLoadStatus();
+
+        // Deshabilitar el botón (ya fue verificada esta carga)
+        if (btn) {
+            btn.textContent = '✅ Verificado';
+            btn.style.opacity = '0.6';
+            btn.style.cursor = 'not-allowed';
+            btn.disabled = true;
+        }
+
+        // Refrescar badge de estadísticas
+        await loadLearningStats();
+    } catch (e) {
+        const msg = e.message || 'Error al verificar';
+        toast(msg.includes('ya fue verificada') ? '⚠️ Esta carga ya fue verificada anteriormente' : `Error: ${msg}`, 'error');
+        if (btn) { btn.disabled = false; btn.textContent = '✅ Verificar y Aprender'; }
+    }
+}
+
+async function loadLearningStats() {
+    try {
+        const stats = await api.getLearningStats();
+        const badge = $('learningBadge');
+        const text = $('learningStatsText');
+        if (!badge || !text) return;
+
+        if (stats.verified_loads > 0) {
+            badge.style.display = 'block';
+            const reliable = stats.reliable_patterns > 0 ? ` · ${stats.reliable_patterns} patrones confiables` : '';
+            text.textContent = `Aprendido de ${stats.verified_loads} carga(s) · ${stats.total_packages_learned} paquetes${reliable}`;
+        } else {
+            badge.style.display = 'none';
+        }
+    } catch (e) {
+        // Silencioso — el sistema de aprendizaje es opcional
+    }
+}
+
 // ==================== GLOBAL ====================
 window.removeMaterial = removeMaterial;
 window.removeAditamento = removeAditamento;
@@ -1680,6 +1776,8 @@ window.switchSearchTab = switchSearchTab;
 window.selectLoadItem = selectLoadItem;
 window.loadSelectedLoad = loadSelectedLoad;
 window.loadSelectedLoadDirect = loadSelectedLoadDirect;
+window.verifyLoad = verifyLoad;
+window.enableVerifyButton = enableVerifyButton;
 
 // ==================== START ====================
 document.addEventListener('DOMContentLoaded', init);

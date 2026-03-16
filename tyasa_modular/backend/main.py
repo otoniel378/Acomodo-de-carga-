@@ -80,6 +80,13 @@ try:
 except ImportError as e:
     print(f"⚠ Error cargando optimize: {e}")
 
+try:
+    from routes.learning import router as learning_router
+    app.include_router(learning_router)
+    print("✓ Rutas de learning cargadas")
+except ImportError as e:
+    print(f"⚠ Error cargando learning: {e}")
+
 
 # ==================== ARCHIVOS ESTÁTICOS ====================
 # Ruta al directorio frontend (relativo al backend)

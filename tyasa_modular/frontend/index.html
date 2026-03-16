@@ -171,9 +171,14 @@
                 </div>
                 
                 <button class="btn btn-primary btn-lg w-full" id="btnOptimizar">⚡ Optimizar Acomodo</button>
+                <button class="btn w-full" id="btnVerificarAprender" style="background:var(--green);color:#fff;font-weight:bold;opacity:0.5;cursor:not-allowed;" disabled title="Optimiza la carga primero para habilitar esta opción">✅ Verificar y Aprender</button>
                 <div class="grid-2">
                     <button class="btn btn-secondary" id="btnConsultar">📋 Consultar</button>
                     <button class="btn btn-secondary" id="btnExportPDF">📄 PDF</button>
+                </div>
+                <!-- Badge de aprendizaje -->
+                <div id="learningBadge" style="display:none;margin-top:6px;padding:6px 10px;background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.3);border-radius:6px;font-size:11px;color:var(--green);text-align:center;">
+                    🧠 <span id="learningStatsText">Aprendido de 0 cargas</span>
                 </div>
             </div>
         </div>

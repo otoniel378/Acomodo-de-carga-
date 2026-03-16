@@ -140,14 +140,45 @@ class Placement(Base):
 class BedNote(Base):
     """Notas por cama en una carga"""
     __tablename__ = "bed_notes"
-    
+
     id = Column(Integer, primary_key=True, autoincrement=True)
     load_id = Column(Integer, ForeignKey("loads.id"))
     bed_number = Column(Integer, nullable=False)
     note = Column(String, default="")
     created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
-    
+
     load = relationship("Load", back_populates="bed_notes")
+
+
+class PlacementPattern(Base):
+    """Patrones de acomodo aprendidos de cargas verificadas"""
+    __tablename__ = "placement_patterns"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    # Clave del grupo: combinación material_type + calibre_bucket + almacen (+ truck)
+    feature_key = Column(String, nullable=False)
+    truck_type_id = Column(String, nullable=True)     # Si None aplica a todos los camiones
+    material_type = Column(String, nullable=False)
+    calibre_bucket = Column(Float, default=0)         # Calibre redondeado al par más cercano
+    almacen = Column(String, default="")
+    # Estadísticas aprendidas
+    avg_priority = Column(Float, default=0.5)         # 0.0 = va primero, 1.0 = va al final
+    times_seen = Column(Integer, default=0)           # Veces que se ha observado este grupo
+    times_deferred = Column(Integer, default=0)       # Veces que el usuario lo puso como diferido
+    last_updated = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class VerifiedLoad(Base):
+    """Registro de cargas verificadas y usadas para aprendizaje"""
+    __tablename__ = "verified_loads"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    load_id = Column(Integer, ForeignKey("loads.id"))
+    truck_id = Column(String, nullable=True)
+    total_packages = Column(Integer, default=0)
+    materials_count = Column(Integer, default=0)
+    patterns_updated = Column(Integer, default=0)
+    verified_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
 # ==================== FUNCIONES ====================
@@ -174,6 +205,8 @@ def init_database():
             cursor.execute("SELECT tons_sobrantes FROM load_items LIMIT 1")
             conn.close()
             print(f"✓ Base de datos existente válida")
+            # Crear tablas nuevas que pudieran faltar (idempotente, no toca las existentes)
+            Base.metadata.create_all(bind=engine)
             # Sincronizar max_payload_kg de camiones con los valores actuales de config
             db = SessionLocal()
             try:

@@ -160,6 +160,20 @@ const api = {
     // === PDF ===
     getPdfUrl(loadId) {
         return `${API_URL}/api/loads/${loadId}/pdf`;
+    },
+
+    // === LEARNING ===
+    async verifyLoad(loadId) {
+        return this.request(`/api/loads/${loadId}/verify`, { method: 'POST' });
+    },
+
+    async getLearningStats() {
+        return this.request('/api/learning/stats');
+    },
+
+    async getLearningPatterns(truckTypeId = null) {
+        const query = truckTypeId ? `?truck_type_id=${truckTypeId}` : '';
+        return this.request(`/api/learning/patterns${query}`);
     }
 };
 

@@ -13,10 +13,11 @@ from sqlalchemy.orm import Session
 from typing import List, Dict
 import sys
 import os
+import math
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from database import get_db, Load, LoadItem, Placement, TruckType
+from database import get_db, Load, LoadItem, Placement, TruckType, PlacementPattern
 from schemas import OptimizeRequest, OptimizeResponse, PlacementUpdate, BedStats
 
 router = APIRouter(prefix="/api", tags=["optimize"])
@@ -683,9 +684,65 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
             })
     sys.stdout.flush()
     
+    # ── Cargar patrones aprendidos de cargas verificadas ─────────────────────
+    learned_patterns: dict = {}
+    try:
+        db_patterns = db.query(PlacementPattern).filter(
+            (PlacementPattern.truck_type_id == load.truck_id) |
+            (PlacementPattern.truck_type_id == None)
+        ).all()
+        for pat in db_patterns:
+            learned_patterns[pat.feature_key] = {
+                "avg_priority": pat.avg_priority,
+                "times_seen": pat.times_seen,
+            }
+    except Exception as e:
+        print(f"[LEARN] No se pudieron cargar patrones: {e}", flush=True)
+
+    def _calibre_bucket_opt(c):
+        if not c or c <= 0:
+            return 0.0
+        return round(c / 2) * 2.0
+
+    def _feature_key_opt(p):
+        cb = _calibre_bucket_opt(p.get("calibre", 0))
+        return f"{p.get('material_type', '')}|{cb}|{p.get('almacen', '')}"
+
+    total_patterns = len(learned_patterns)
+
+    # Score default normalizado (0=primero, 1=último) equivalente al sort clásico
+    max_almacen_p = max((p["almacen_priority"] for p in packages), default=999) or 1
+    max_calibre   = max((p["calibre"] for p in packages), default=20) or 20
+    max_height    = max((p["height"]  for p in packages), default=500) or 500
+    max_area      = max((p["length"] * p["width"] for p in packages), default=1) or 1
+
+    def default_score_opt(p):
+        s_alm  = p["almacen_priority"] / max_almacen_p
+        s_cal  = p["calibre"] / max_calibre
+        s_h    = 1.0 - p["height"] / max_height
+        s_area = 1.0 - (p["length"] * p["width"]) / max_area
+        return s_alm * 0.50 + s_cal * 0.30 + s_h * 0.10 + s_area * 0.10
+
+    def blended_score_opt(p):
+        d_score = default_score_opt(p)
+        fkey    = _feature_key_opt(p)
+        pat     = learned_patterns.get(fkey)
+        if pat and pat["times_seen"] > 0:
+            # Alpha crece con más datos: 0.10 con 1 carga → 0.60 con ~30 cargas
+            alpha = min(0.60, 0.10 + 0.05 * math.log(max(1, pat["times_seen"])))
+            return (1.0 - alpha) * d_score + alpha * pat["avg_priority"]
+        return d_score
+
+    if total_patterns > 0:
+        print(f"[LEARN] {total_patterns} patrones aprendidos disponibles para {load.truck_id}", flush=True)
+
     # Ordenar: prioridad almacén, CALIBRE (menor a mayor: 14, 18, 20...), altura DESC, área DESC
     # Esto garantiza que calibre 14 se procese primero, luego 18, luego 20, etc.
-    packages.sort(key=lambda p: (p["almacen_priority"], p["calibre"], -p["height"], -(p["length"] * p["width"])))
+    # Si hay patrones aprendidos, se usa score combinado (default + aprendido)
+    if total_patterns > 0:
+        packages.sort(key=blended_score_opt)
+    else:
+        packages.sort(key=lambda p: (p["almacen_priority"], p["calibre"], -p["height"], -(p["length"] * p["width"])))
     
     print(f"\n[DEBUG] Orden de procesamiento:", flush=True)
     calibres_vistos = []

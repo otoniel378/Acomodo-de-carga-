@@ -368,6 +368,9 @@ function updateLoadStatus() {
     if (!state.loadId) {
         badge.className = 'badge warning';
         text.textContent = 'Sin carga';
+    } else if (state.load?.status === 'VERIFIED') {
+        badge.className = 'badge success';
+        text.textContent = '✅ Verificada';
     } else if (state.load?.status === 'OPTIMIZED') {
         badge.className = 'badge success';
         text.textContent = 'Optimizado';
