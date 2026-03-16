@@ -49,7 +49,11 @@ const state = {
     almacenPriorities: [],
     
     // Altura total de la carga (desde piso hasta última cama)
-    totalHeight: 0
+    totalHeight: 0,
+
+    // Configuración de espaciado usada en la última optimización (mm)
+    gapBetweenBeds: 100,
+    gapFloorToBed: 0
 };
 
 // Colores por tipo de material

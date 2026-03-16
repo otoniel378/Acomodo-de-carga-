@@ -117,6 +117,12 @@ const api = {
         });
     },
 
+    async deleteLoadItem(loadId, itemId) {
+        return this.request(`/api/loads/${loadId}/items/${itemId}`, {
+            method: 'DELETE'
+        });
+    },
+
     // === OPTIMIZE ===
     async optimize(loadId, mode = 'opt1', almacenPriorities = [], truckQuantity = 1, gapFloorToBed = 0, gapBetweenBeds = 100, centerPackages = true) {
         return this.request('/api/optimize', {
@@ -174,6 +180,10 @@ const api = {
     async getLearningPatterns(truckTypeId = null) {
         const query = truckTypeId ? `?truck_type_id=${truckTypeId}` : '';
         return this.request(`/api/learning/patterns${query}`);
+    },
+
+    async autoLearn(loadId) {
+        return this.request(`/api/loads/${loadId}/auto-learn`, { method: 'POST' });
     }
 };
 

@@ -705,9 +705,27 @@ function addMaterial() {
     render3D();
 }
 
-function removeMaterial(index) {
+async function removeMaterial(index) {
+    const material = state.materials[index];
+    if (!material) return;
+
+    // Si hay placements y el material tiene un ID de BD, eliminar solo los de ese item
+    if (material.id && state.placements.length > 0) {
+        if (state.loadId) {
+            try {
+                await api.deleteLoadItem(state.loadId, material.id);
+            } catch (e) {
+                console.warn('No se pudo eliminar del servidor:', e.message);
+            }
+        }
+        // Filtrar solo los placements del material eliminado
+        state.placements = state.placements.filter(p => p.load_item_id !== material.id);
+    } else if (!material.id && state.placements.length > 0) {
+        // Material sin ID (carga sin guardar): limpiar todos los placements
+        state.placements = [];
+    }
+
     state.materials.splice(index, 1);
-    state.placements = [];
     updateAllUI();
     render3D();
 }
@@ -1097,6 +1115,9 @@ async function optimize() {
         // Optimizar con el modo seleccionado, prioridades, cantidad de transportes y configuración de espaciado
         const res = await api.optimize(state.loadId, optimizeMode, state.almacenPriorities, truckQuantity, gapFloorToBed, gapBetweenBeds, centerPackages);
         console.log('Resultado optimización:', res);
+        // Guardar configuración de gaps para usarla en movimientos manuales
+        state.gapBetweenBeds = gapBetweenBeds;
+        state.gapFloorToBed  = gapFloorToBed;
         
         // Guardar stats de camas y altura total
         state.bedsStats = res.beds_stats || [];

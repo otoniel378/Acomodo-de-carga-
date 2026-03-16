@@ -6,6 +6,21 @@
 let scene, camera, renderer, controls;
 let truckGroup, packagesGroup;
 
+// ── Auto-aprendizaje: guardar patrones silenciosamente después de cada movimiento ──
+let _autoLearnTimer = null;
+function triggerAutoLearn() {
+    if (!state.loadId) return;
+    clearTimeout(_autoLearnTimer);
+    _autoLearnTimer = setTimeout(async () => {
+        try {
+            await api.autoLearn(state.loadId);
+        } catch (e) {
+            // Silencioso — no interrumpir el flujo del usuario
+            console.debug('[auto-learn] error silencioso:', e.message);
+        }
+    }, 2000); // 2 segundos de debounce
+}
+
 // ==================== RECALCULAR ALTURA TOTAL ====================
 function recalculateTotalHeight() {
     // Recalcular altura basándose en los placements locales
@@ -1114,7 +1129,7 @@ async function applyDragMove(deltaX, deltaZ) {
         const newZ = p.z + deltaZ;
         const platform = p.platform || state.selectedPlatform || 1;
         
-        const validation = validatePlacementEdit(newX, newZ, p.bed_number, p.length_used, p.width_used, p.id, platform);
+        const validation = validatePlacementEdit(newX, newZ, p.bed_number, p.length_used, p.width_used, p.id, platform, p.height_used);
         if (!validation.valid) {
             toast(`No se puede mover: ${validation.message}`, 'error');
             return;
@@ -1142,6 +1157,7 @@ async function applyDragMove(deltaX, deltaZ) {
 
         if (state.load) state.load.status = 'MANUAL';
         toast(`${selectedPlacements.length} paquete(s) movido(s)`, 'success');
+        triggerAutoLearn();
 
         // Recalcular altura
         recalculateTotalHeight();
@@ -1504,34 +1520,36 @@ function highlightIn3D(p) {
     highlightMultipleIn3D();
 }
 
-function validatePlacementEdit(newX, newZ, newBed, length, width, excludeId = null, platform = null) {
+const MAX_HEIGHT_DIFF = 20; // mm — tolerancia de altura entre paquetes de la misma cama
+
+function validatePlacementEdit(newX, newZ, newBed, length, width, excludeId = null, platform = null, heightUsed = null) {
     if (!state.truck) return { valid: false, message: 'No hay camión seleccionado' };
-    
+
     const maxL = state.truck.length_mm;
     const maxW = state.truck.width_mm;
-    
+
     // Usar la plana proporcionada o la seleccionada actualmente
     const currentPlatform = platform || state.selectedPlatform || 1;
-    
+
     // Verificar límites
     if (newX < 0) return { valid: false, message: 'Posición X fuera del límite izquierdo' };
     if (newZ < 0) return { valid: false, message: 'Posición Z fuera del límite superior' };
     if (newX + length > maxL) return { valid: false, message: `Excede largo del camión (máx: ${maxL}mm)` };
     if (newZ + width > maxW) return { valid: false, message: `Excede ancho del camión (máx: ${maxW}mm)` };
-    
+
     // IDs a excluir (el propio paquete y todos los seleccionados que se mueven juntos)
     const excludeIds = new Set();
     if (excludeId) excludeIds.add(excludeId);
     selectedPlacements.forEach(p => excludeIds.add(p.id));
-    
-    // Verificar colisiones con otros paquetes en la misma cama Y PLANA
-    const otherPlacements = state.placements.filter(p => 
+
+    // Verificar colisiones y compatibilidad de altura con otros paquetes en la misma cama Y PLANA
+    const otherPlacements = state.placements.filter(p =>
         (p.platform || 1) === currentPlatform &&  // MISMA PLANA
-        p.bed_number === newBed && 
-        p.placed && 
+        p.bed_number === newBed &&
+        p.placed &&
         !excludeIds.has(p.id)
     );
-    
+
     for (const other of otherPlacements) {
         // Verificar superposición
         if (newX < other.x + other.length_used &&
@@ -1541,7 +1559,17 @@ function validatePlacementEdit(newX, newZ, newBed, length, width, excludeId = nu
             return { valid: false, message: `Colisión con otro paquete` };
         }
     }
-    
+
+    // Verificar compatibilidad de altura con la cama destino (separación entre camas)
+    if (heightUsed !== null && otherPlacements.length > 0) {
+        const bedHeights = otherPlacements.map(p => p.height_used);
+        const minBedH = Math.min(...bedHeights);
+        const maxBedH = Math.max(...bedHeights);
+        if (Math.abs(heightUsed - minBedH) > MAX_HEIGHT_DIFF || Math.abs(heightUsed - maxBedH) > MAX_HEIGHT_DIFF) {
+            return { valid: false, message: `Altura incompatible con cama ${newBed} (dif. máx ±${MAX_HEIGHT_DIFF}mm)` };
+        }
+    }
+
     return { valid: true, message: 'Posición válida ✓' };
 }
 
@@ -1577,7 +1605,7 @@ async function applyPlacementEdit() {
         );
         if (lowerPlacements.length > 0) {
             const maxY = Math.max(...lowerPlacements.map(p => p.y + p.height_used));
-            newY = maxY + 100; // Gap entre camas
+            newY = maxY + (state.gapBetweenBeds || 100); // Gap configurado entre camas
         }
     }
     
@@ -1591,16 +1619,39 @@ async function applyPlacementEdit() {
         return a.x - b.x;
     });
     
+    // Verificar compatibilidad de altura con la cama destino antes de mover
+    const destBedPkgs = state.placements.filter(p =>
+        (p.platform || 1) === newPlatform &&
+        p.bed_number === newBed &&
+        p.placed &&
+        !sortedPlacements.some(sp => sp.id === p.id)
+    );
+    if (destBedPkgs.length > 0) {
+        const bedHeights = destBedPkgs.map(p => p.height_used);
+        const minBedH = Math.min(...bedHeights);
+        const maxBedH = Math.max(...bedHeights);
+        for (const placement of sortedPlacements) {
+            if (placement.bed_number === newBed && (placement.platform || 1) === newPlatform) continue;
+            if (Math.abs(placement.height_used - minBedH) > MAX_HEIGHT_DIFF ||
+                Math.abs(placement.height_used - maxBedH) > MAX_HEIGHT_DIFF) {
+                showValidationMessage(
+                    `Paquete incompatible con cama ${newBed}: diferencia de altura > ${MAX_HEIGHT_DIFF}mm`, false
+                );
+                return;
+            }
+        }
+    }
+
     for (const placement of sortedPlacements) {
         // Saltar si ya está en el destino
         if (placement.bed_number === newBed && (placement.platform || 1) === newPlatform) {
             continue;
         }
-        
+
         // Buscar posición disponible en la cama destino
         // Excluir los paquetes que estamos moviendo del cálculo de colisiones
         const newPosition = findAvailablePositionForMultiple(newPlatform, newBed, placement.length_used, placement.width_used, sortedPlacements.map(p => p.id));
-        
+
         if (!newPosition) {
             errorCount++;
             console.warn(`No hay espacio para paquete ${placement.id} en cama ${newBed}`);
@@ -1638,8 +1689,11 @@ async function applyPlacementEdit() {
     }
     
     // Actualizar estado de la carga a MANUAL
-    if (state.load && movedCount > 0) state.load.status = 'MANUAL';
-    
+    if (state.load && movedCount > 0) {
+        state.load.status = 'MANUAL';
+        triggerAutoLearn();
+    }
+
     // Mensaje de resultado
     const platLabel = isDual ? `Plana ${newPlatform} - ` : '';
     if (errorCount === 0) {
@@ -1880,7 +1934,8 @@ async function rotatePlacement() {
         newLength,
         newWidth,
         p.id,
-        p.platform || state.selectedPlatform || 1  // Pasar plana
+        p.platform || state.selectedPlatform || 1,
+        newHeight
     );
     
     if (!validation.valid) {

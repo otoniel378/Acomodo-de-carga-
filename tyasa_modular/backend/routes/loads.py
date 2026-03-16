@@ -86,6 +86,28 @@ def delete_load(load_id: int, db: Session = Depends(get_db)):
     return {"message": f"Carga {load.numero_carga} eliminada correctamente", "id": load_id}
 
 
+@router.delete("/{load_id}/items/{item_id}")
+def delete_load_item(load_id: int, item_id: int, db: Session = Depends(get_db)):
+    """Eliminar un material específico y sus placements sin afectar los demás"""
+    item = db.query(LoadItem).filter(
+        LoadItem.id == item_id,
+        LoadItem.load_id == load_id
+    ).first()
+    if not item:
+        raise HTTPException(status_code=404, detail="Material no encontrado")
+
+    # Eliminar solo los placements de ese item
+    deleted = db.query(Placement).filter(
+        Placement.load_item_id == item_id
+    ).delete()
+
+    # Eliminar el item
+    db.delete(item)
+    db.commit()
+
+    return {"message": "Material eliminado", "item_id": item_id, "placements_removed": deleted}
+
+
 @router.get("")
 def get_loads(
     fecha: Optional[str] = None,

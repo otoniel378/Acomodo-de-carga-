@@ -163,6 +163,8 @@ class PlacementPattern(Base):
     almacen = Column(String, default="")
     # Estadísticas aprendidas
     avg_priority = Column(Float, default=0.5)         # 0.0 = va primero, 1.0 = va al final
+    avg_x_normalized = Column(Float, default=0.5)    # Posición X preferida (0.0=frente, 1.0=fondo)
+    avg_z_normalized = Column(Float, default=0.5)    # Posición Z preferida (0.0=izq, 1.0=der)
     times_seen = Column(Integer, default=0)           # Veces que se ha observado este grupo
     times_deferred = Column(Integer, default=0)       # Veces que el usuario lo puso como diferido
     last_updated = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
@@ -207,6 +209,20 @@ def init_database():
             print(f"✓ Base de datos existente válida")
             # Crear tablas nuevas que pudieran faltar (idempotente, no toca las existentes)
             Base.metadata.create_all(bind=engine)
+            # Migrar columnas nuevas en placement_patterns si no existen
+            try:
+                conn_mig = sqlite3.connect(DATABASE_FILE)
+                try:
+                    conn_mig.execute("SELECT avg_x_normalized FROM placement_patterns LIMIT 1")
+                except Exception:
+                    conn_mig.execute("ALTER TABLE placement_patterns ADD COLUMN avg_x_normalized REAL DEFAULT 0.5")
+                    conn_mig.execute("ALTER TABLE placement_patterns ADD COLUMN avg_z_normalized REAL DEFAULT 0.5")
+                    conn_mig.commit()
+                    print("✓ Columnas avg_x_normalized/avg_z_normalized agregadas a placement_patterns")
+                finally:
+                    conn_mig.close()
+            except Exception:
+                pass
             # Sincronizar max_payload_kg de camiones con los valores actuales de config
             db = SessionLocal()
             try:
