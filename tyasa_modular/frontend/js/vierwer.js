@@ -1120,22 +1120,12 @@ async function applyDragMove(deltaX, deltaZ) {
     // Redondear a múltiplos de 10mm
     deltaX = Math.round(deltaX / 10) * 10;
     deltaZ = Math.round(deltaZ / 10) * 10;
-    
+
     if (deltaX === 0 && deltaZ === 0) return;
-    
-    // Validar todas las nuevas posiciones
-    for (const p of selectedPlacements) {
-        const newX = p.x + deltaX;
-        const newZ = p.z + deltaZ;
-        const platform = p.platform || state.selectedPlatform || 1;
-        
-        const validation = validatePlacementEdit(newX, newZ, p.bed_number, p.length_used, p.width_used, p.id, platform, p.height_used);
-        if (!validation.valid) {
-            toast(`No se puede mover: ${validation.message}`, 'error');
-            return;
-        }
-    }
-    
+
+    // Modo manual: sin restricciones — el experto decide la posición final.
+    // No se validan colisiones, límites ni compatibilidad de altura.
+
     // Aplicar movimiento a todos
     try {
         for (const p of selectedPlacements) {
@@ -1165,6 +1155,23 @@ async function applyDragMove(deltaX, deltaZ) {
         render3D();
         draw2DWithMultiSelection(state.selectedBed);
         updateSelectionUI();
+
+        // Para camiones largos: si la zona del tab activo ya no tiene paquetes
+        // en la cama seleccionada, actualizar selectedZone al que sí tiene
+        if (state.truck && state.truck.length_mm >= 11000 && state.selectedBed) {
+            const bedPkgs = state.placements.filter(p =>
+                p.bed_number === state.selectedBed &&
+                (p.platform || 1) === (state.selectedPlatform || 1) &&
+                p.placed
+            );
+            const zoneACnt = bedPkgs.filter(p => (p.bed_zone || (p.x < 6025 ? 'A' : 'B')) === 'A').length;
+            const zoneBCnt = bedPkgs.length - zoneACnt;
+            if (state.selectedZone === 'A' && zoneACnt === 0 && zoneBCnt > 0) {
+                state.selectedZone = 'B';
+            } else if (state.selectedZone === 'B' && zoneBCnt === 0 && zoneACnt > 0) {
+                state.selectedZone = 'A';
+            }
+        }
 
         // Actualizar tabs de camas y distribución (reflejan zonas A/B recalculadas)
         renderBedsTabs();
@@ -1560,8 +1567,11 @@ function validatePlacementEdit(newX, newZ, newBed, length, width, excludeId = nu
         }
     }
 
-    // Verificar compatibilidad de altura con la cama destino (separación entre camas)
-    if (heightUsed !== null && otherPlacements.length > 0) {
+    // Verificar compatibilidad de altura con la cama destino (solo al mover a una cama diferente)
+    // Si el paquete ya está en la cama destino (drag dentro de la misma cama), omitir este chequeo
+    const draggingPkg = excludeId ? state.placements.find(p => p.id === excludeId) : null;
+    const isSameBedDrag = draggingPkg && draggingPkg.bed_number === newBed;
+    if (!isSameBedDrag && heightUsed !== null && otherPlacements.length > 0) {
         const bedHeights = otherPlacements.map(p => p.height_used);
         const minBedH = Math.min(...bedHeights);
         const maxBedH = Math.max(...bedHeights);
@@ -1619,28 +1629,8 @@ async function applyPlacementEdit() {
         return a.x - b.x;
     });
     
-    // Verificar compatibilidad de altura con la cama destino antes de mover
-    const destBedPkgs = state.placements.filter(p =>
-        (p.platform || 1) === newPlatform &&
-        p.bed_number === newBed &&
-        p.placed &&
-        !sortedPlacements.some(sp => sp.id === p.id)
-    );
-    if (destBedPkgs.length > 0) {
-        const bedHeights = destBedPkgs.map(p => p.height_used);
-        const minBedH = Math.min(...bedHeights);
-        const maxBedH = Math.max(...bedHeights);
-        for (const placement of sortedPlacements) {
-            if (placement.bed_number === newBed && (placement.platform || 1) === newPlatform) continue;
-            if (Math.abs(placement.height_used - minBedH) > MAX_HEIGHT_DIFF ||
-                Math.abs(placement.height_used - maxBedH) > MAX_HEIGHT_DIFF) {
-                showValidationMessage(
-                    `Paquete incompatible con cama ${newBed}: diferencia de altura > ${MAX_HEIGHT_DIFF}mm`, false
-                );
-                return;
-            }
-        }
-    }
+    // Modo manual: sin restricción de altura al cambiar camas.
+    // El experto decide qué paquetes van en qué cama.
 
     for (const placement of sortedPlacements) {
         // Saltar si ya está en el destino
@@ -1648,15 +1638,10 @@ async function applyPlacementEdit() {
             continue;
         }
 
-        // Buscar posición disponible en la cama destino
-        // Excluir los paquetes que estamos moviendo del cálculo de colisiones
-        const newPosition = findAvailablePositionForMultiple(newPlatform, newBed, placement.length_used, placement.width_used, sortedPlacements.map(p => p.id));
-
-        if (!newPosition) {
-            errorCount++;
-            console.warn(`No hay espacio para paquete ${placement.id} en cama ${newBed}`);
-            continue;
-        }
+        // Buscar posición disponible en la cama destino.
+        // En modo manual, si no hay posición libre se usa (0,0) — el experto reordena después.
+        const newPosition = findAvailablePositionForMultiple(newPlatform, newBed, placement.length_used, placement.width_used, sortedPlacements.map(p => p.id))
+            || { x: 0, z: 0 };
         
         try {
             // Actualizar en servidor
@@ -1707,19 +1692,36 @@ async function applyPlacementEdit() {
     // Cambiar a la cama/plana donde se movió
     state.selectedPlatform = newPlatform;
     state.selectedBed = newBed;
+
+    // Para camiones largos: determinar zona de la cama destino y actualizar selectedZone
+    if (state.truck && state.truck.length_mm >= 11000 && movedCount > 0) {
+        const destPkgs = state.placements.filter(p =>
+            p.bed_number === newBed &&
+            (p.platform || 1) === newPlatform &&
+            p.placed
+        );
+        const zoneACnt = destPkgs.filter(p => {
+            const zone = p.bed_zone || (p.x < 6025 ? 'A' : 'B');
+            return zone === 'A';
+        }).length;
+        const zoneBCnt = destPkgs.length - zoneACnt;
+        state.selectedZone = zoneBCnt > zoneACnt ? 'B' : 'A';
+    }
+
     renderBedsTabs();
-    
+
     // Actualizar distribución por camas
     renderBedsDistribution();
-    
+
     // Recalcular altura total después de mover
     recalculateTotalHeight();
-    
+
     // Redibujar
     render3D();
     draw2DWithMultiSelection(state.selectedBed);
     updateSelectionUI();
-    
+    renderBedMaterialsList(state.selectedBed, state.selectedPlatform || 1);
+
     // Actualizar selector de cama
     const bedSelect = $('editBedNum');
     if (bedSelect) bedSelect.value = newBed;
