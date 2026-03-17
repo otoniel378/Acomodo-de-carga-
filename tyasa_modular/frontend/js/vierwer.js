@@ -1638,10 +1638,11 @@ async function applyPlacementEdit() {
             continue;
         }
 
-        // Buscar posición disponible en la cama destino.
-        // En modo manual, si no hay posición libre se usa (0,0) — el experto reordena después.
-        const newPosition = findAvailablePositionForMultiple(newPlatform, newBed, placement.length_used, placement.width_used, sortedPlacements.map(p => p.id))
-            || { x: 0, z: 0 };
+        // Modo manual: conservar la posición X/Z original del paquete en la nueva cama.
+        // El experto decide la distribución — no forzamos reubicación automática.
+        const newPosition = state.manualMode
+            ? { x: placement.x, z: placement.z }
+            : (findAvailablePositionForMultiple(newPlatform, newBed, placement.length_used, placement.width_used, sortedPlacements.map(p => p.id)) || { x: 0, z: 0 });
         
         try {
             // Actualizar en servidor
@@ -1906,47 +1907,49 @@ async function rotatePlacement() {
     const maxW = state.truck.width_mm;
     const maxH = state.truck.height_mm;
     
-    // Verificar que el nuevo ancho cabe en el camión
-    if (newWidth > maxW) {
-        if (validationDiv) {
-            validationDiv.style.display = 'block';
-            validationDiv.className = 'edit-validation error';
-            validationDiv.textContent = `No cabe: ancho rotado (${newWidth}mm) > ancho camión (${maxW}mm)`;
+    // Modo manual: sin restricciones — el experto decide si rotar sin importar colisiones ni límites.
+    if (!state.manualMode) {
+        // Verificar que el nuevo ancho cabe en el camión
+        if (newWidth > maxW) {
+            if (validationDiv) {
+                validationDiv.style.display = 'block';
+                validationDiv.className = 'edit-validation error';
+                validationDiv.textContent = `No cabe: ancho rotado (${newWidth}mm) > ancho camión (${maxW}mm)`;
+            }
+            return;
         }
-        return;
-    }
-    
-    // Verificar que la nueva altura cabe
-    // Nota: También hay que considerar la altura base de la cama
-    const bedBaseY = p.y || 0;
-    if (bedBaseY + newHeight > maxH) {
-        if (validationDiv) {
-            validationDiv.style.display = 'block';
-            validationDiv.className = 'edit-validation error';
-            validationDiv.textContent = `No cabe: altura rotada (${newHeight}mm) excede altura disponible`;
+
+        // Verificar que la nueva altura cabe
+        const bedBaseY = p.y || 0;
+        if (bedBaseY + newHeight > maxH) {
+            if (validationDiv) {
+                validationDiv.style.display = 'block';
+                validationDiv.className = 'edit-validation error';
+                validationDiv.textContent = `No cabe: altura rotada (${newHeight}mm) excede altura disponible`;
+            }
+            return;
         }
-        return;
-    }
-    
-    // Validar posición y colisiones con el nuevo ancho
-    const validation = validatePlacementEdit(
-        p.x,
-        p.z,
-        p.bed_number,
-        newLength,
-        newWidth,
-        p.id,
-        p.platform || state.selectedPlatform || 1,
-        newHeight
-    );
-    
-    if (!validation.valid) {
-        if (validationDiv) {
-            validationDiv.style.display = 'block';
-            validationDiv.className = 'edit-validation error';
-            validationDiv.textContent = validation.message;
+
+        // Validar posición y colisiones con el nuevo ancho
+        const validation = validatePlacementEdit(
+            p.x,
+            p.z,
+            p.bed_number,
+            newLength,
+            newWidth,
+            p.id,
+            p.platform || state.selectedPlatform || 1,
+            newHeight
+        );
+
+        if (!validation.valid) {
+            if (validationDiv) {
+                validationDiv.style.display = 'block';
+                validationDiv.className = 'edit-validation error';
+                validationDiv.textContent = validation.message;
+            }
+            return;
         }
-        return;
     }
     
     try {
