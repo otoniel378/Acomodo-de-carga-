@@ -47,6 +47,13 @@ const api = {
         });
     },
 
+    async updateTruck(truckId, data) {
+        return this.request(`/api/trucks/${truckId}`, {
+            method: 'PUT',
+            body: JSON.stringify(data)
+        });
+    },
+
     // === PRODUCTS ===
     async getProducts(materialType = null) {
         const query = materialType ? `?material_type=${materialType}` : '';

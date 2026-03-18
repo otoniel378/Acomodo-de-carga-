@@ -18,7 +18,7 @@ import math
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import get_db, Load, LoadItem, Placement, TruckType, PlacementPattern
-from schemas import OptimizeRequest, OptimizeResponse, PlacementUpdate, BedStats
+from schemas import OptimizeRequest, OptimizeResponse, PlacementUpdate, BedStats, NotPlacedDetail
 
 router = APIRouter(prefix="/api", tags=["optimize"])
 
@@ -276,8 +276,8 @@ def add_placement(result, bed, pkg, platform, placements_db, load, current_weigh
 # =========================
 # Función para procesar una zona (usada por Opt2)
 # =========================
-def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W, 
-                 current_weight, available_payload, x_min, x_max):
+def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
+                 current_weight, available_payload, x_min, x_max, not_placed_reasons=None):
     """
     Procesa una zona específica (frontal o trasera) como una carga completa.
     
@@ -301,6 +301,8 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
         # Verificar límite de peso TOTAL
         if current_weight + pkg["weight"] > available_payload:
             not_placed += 1
+            if not_placed_reasons is not None:
+                not_placed_reasons[(pkg["item_id"], pkg["pkg_index"])] = "peso_excedido"
             placements_db.append(Placement(
                 load_id=load.id, load_item_id=pkg["item_id"],
                 paquete_index=pkg["pkg_index"], platform=1, bed_number=0,
@@ -309,18 +311,18 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
                 placed=False
             ))
             continue
-        
+
         # Verificar límite de peso DE ESTA PLATAFORMA
         platform_current = platform.get("current_weight", 0.0)
         if platform_current + pkg["weight"] > platform_max_payload:
             # No cabe en esta plataforma por peso, pasa a remaining para otra plana
             remaining.append(pkg)
             continue
-        
+
         pkg_h = float(pkg["height"])
         pkg_calibre = pkg.get("calibre")
         placed = False
-        
+
         # Buscar en camas existentes DE LA PLANA 1
         for bed in platform["beds"]:
             if bed.get("is_overflow"):
@@ -411,7 +413,7 @@ def bed_height_range_ok_in_zone(bed: Dict, pkg_h: float, x_min: float, x_max: fl
 # Función para procesar zona trasera (Opt2 Fase 2)
 # =========================
 def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
-                      current_weight, available_payload, x_min, x_max):
+                      current_weight, available_payload, x_min, x_max, not_placed_reasons=None):
     """
     Procesa la zona trasera (paquetes normales, diferidos ya separados).
     RESPETA EL LÍMITE DE PESO POR PLATAFORMA.
@@ -429,6 +431,8 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
         # Verificar límite de peso TOTAL
         if current_weight + pkg["weight"] > available_payload:
             not_placed += 1
+            if not_placed_reasons is not None:
+                not_placed_reasons[(pkg["item_id"], pkg["pkg_index"])] = "peso_excedido"
             placements_db.append(Placement(
                 load_id=load.id, load_item_id=pkg["item_id"],
                 paquete_index=pkg["pkg_index"], platform=1, bed_number=0,
@@ -437,7 +441,7 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
                 placed=False
             ))
             continue
-        
+
         # Verificar límite de peso DE ESTA PLATAFORMA
         platform_current = platform.get("current_weight", 0.0)
         if platform_current + pkg["weight"] > platform_max_payload:
@@ -496,8 +500,8 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
 # =========================
 # Procesar zona en Plana 2 (para Full)
 # =========================
-def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_W, 
-                           current_weight, available_payload, x_min, x_max):
+def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_W,
+                           current_weight, available_payload, x_min, x_max, not_placed_reasons=None):
     """
     Procesa paquetes en la PLANA 2 (paquetes normales, diferidos ya separados).
     RESPETA EL LÍMITE DE PESO POR PLATAFORMA.
@@ -515,6 +519,8 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
         # Verificar límite de peso TOTAL
         if current_weight + pkg["weight"] > available_payload:
             not_placed += 1
+            if not_placed_reasons is not None:
+                not_placed_reasons[(pkg["item_id"], pkg["pkg_index"])] = "peso_excedido"
             placements_db.append(Placement(
                 load_id=load.id, load_item_id=pkg["item_id"],
                 paquete_index=pkg["pkg_index"], platform=2, bed_number=0,
@@ -523,7 +529,7 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
                 placed=False
             ))
             continue
-        
+
         # Verificar límite de peso DE ESTA PLATAFORMA
         platform_current = platform.get("current_weight", 0.0)
         if platform_current + pkg["weight"] > platform_max_payload:
@@ -639,13 +645,18 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
     
     print(f"\n[CONFIG] Camión: {truck.name}, Cantidad: {truck_quantity}, Planas: {num_platforms}, Payload: {total_max_payload}kg", flush=True)
     
-    # Prioridad por familia (material_type) o almacén+calibre.
-    # Si el ítem tiene material_type definido en las prioridades, ese valor prevalece.
+    # Prioridad: SAP específico > familia (material_type) > almacén+calibre
+    sap_priority: dict = {}            # {(sap_code, almacen): priority}
+    forced_sap: set = set()            # sap_codes forzados (van primero siempre, priority=0)
     material_type_priority: dict = {}  # {material_type: priority}
     almacen_priority: dict = {}        # {(almacen, calibre): priority} — legado
     if request.almacen_priorities:
         for ap in request.almacen_priorities:
-            if ap.material_type:
+            if ap.forced and ap.sap_code:
+                forced_sap.add(ap.sap_code)
+            if ap.sap_code:
+                sap_priority[(ap.sap_code, ap.almacen)] = 0 if ap.forced else ap.priority
+            elif ap.material_type:
                 material_type_priority[ap.material_type] = ap.priority
             else:
                 cal = ap.calibre if ap.calibre is not None else None
@@ -665,8 +676,13 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
         calibre = item.calibre or 99
         almacen = item.almacen or ""
         mat_type = item.material_type or ""
-        # Prioridad: familia (material_type) > almacén+calibre > sin prioridad
-        if mat_type and mat_type in material_type_priority:
+        sap = item.sap_code or ""
+        # Prioridad: SAP específico > familia > almacén+calibre > sin prioridad
+        if sap and (sap, almacen) in sap_priority:
+            priority = sap_priority[(sap, almacen)]
+        elif sap and sap in forced_sap:
+            priority = 0
+        elif mat_type and mat_type in material_type_priority:
             priority = material_type_priority[mat_type]
         else:
             item_calibre_real = float(item.calibre) if item.calibre and item.calibre != 0 else None
@@ -812,51 +828,52 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
     
     placements_db: List[Placement] = []
     not_placed_count = 0
+    not_placed_reasons: dict = {}  # {(item_id, pkg_index): reason}
     all_deferred = list(packages_diferidos)  # Empezar con los diferidos por altura
-    
+
     if is_opt2:
         # =========================
         # OPTIMIZACIÓN 2: DOS FASES
         # =========================
-        
+
         # FASE 1: Zona frontal (0-6m) - SOLO paquetes normales
         current_weight, not_placed_1, remaining, deferred_1 = process_zone(
             packages_normales, platforms, placements_db, load, MAX_L, MAX_W,
-            current_weight, available_payload, 0, FRONTAL_ZONE
+            current_weight, available_payload, 0, FRONTAL_ZONE, not_placed_reasons
         )
         not_placed_count += not_placed_1
         all_deferred.extend(deferred_1)
-        
+
         # FASE 2: Zona trasera (6m-12m) con los que sobraron
         if remaining:
             current_weight, not_placed_2, still_remaining, deferred_2 = process_rear_zone(
                 remaining, platforms, placements_db, load, MAX_L, MAX_W,
-                current_weight, available_payload, FRONTAL_ZONE, MAX_L
+                current_weight, available_payload, FRONTAL_ZONE, MAX_L, not_placed_reasons
             )
             not_placed_count += not_placed_2
             all_deferred.extend(deferred_2)
             remaining = still_remaining
         else:
             remaining = []
-            
+
     else:
         # =========================
         # OPTIMIZACIÓN 1: Superficie completa
         # =========================
-        
+
         # Procesar PLANA 1 - SOLO paquetes normales
         current_weight, not_placed_1, remaining, deferred_1 = process_zone(
             packages_normales, platforms, placements_db, load, MAX_L, MAX_W,
-            current_weight, available_payload, 0, MAX_L
+            current_weight, available_payload, 0, MAX_L, not_placed_reasons
         )
         not_placed_count += not_placed_1
         all_deferred.extend(deferred_1)
-        
+
         # Si es Full y hay remaining, procesarlos en PLANA 2
         if is_dual and remaining and len(platforms) > 1:
             current_weight, not_placed_2, still_remaining, deferred_2 = process_zone_platform2(
                 remaining, platforms, placements_db, load, MAX_L, MAX_W,
-                current_weight, available_payload, 0, MAX_L
+                current_weight, available_payload, 0, MAX_L, not_placed_reasons
             )
             not_placed_count += not_placed_2
             all_deferred.extend(deferred_2)
@@ -885,6 +902,7 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
         for pkg in all_deferred:
             if current_weight + pkg["weight"] > available_payload:
                 not_placed_count += 1
+                not_placed_reasons[(pkg["item_id"], pkg["pkg_index"])] = "peso_excedido"
                 placements_db.append(Placement(
                     load_id=load.id, load_item_id=pkg["item_id"],
                     paquete_index=pkg["pkg_index"], platform=1, bed_number=0,
@@ -957,6 +975,7 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
             
             if not placed:
                 not_placed_count += 1
+                not_placed_reasons[(pkg["item_id"], pkg["pkg_index"])] = "sin_espacio"
                 placements_db.append(Placement(
                     load_id=load.id, load_item_id=pkg["item_id"],
                     paquete_index=pkg["pkg_index"], platform=1, bed_number=0,
@@ -965,10 +984,11 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                     placed=False
                 ))
                 print(f"[DEBUG] Diferido NO COLOCADO (sin espacio en ninguna plana)", flush=True)
-    
+
     # Los remaining que no cupieron en ninguna zona
     for pkg in remaining:
         not_placed_count += 1
+        not_placed_reasons[(pkg["item_id"], pkg["pkg_index"])] = "sin_espacio"
         placements_db.append(Placement(
             load_id=load.id, load_item_id=pkg["item_id"],
             paquete_index=pkg["pkg_index"], platform=1, bed_number=0,
@@ -1038,7 +1058,28 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                 ))
     
     total_placed = len(packages) - not_placed_count
-    
+
+    # Construir detalle de no colocados agrupado por item
+    item_map = {item.id: item for item in items}
+    grouped_reasons: dict = {}  # {item_id: {sap_code, description, count, reason}}
+    for (item_id, pkg_index), reason in not_placed_reasons.items():
+        if item_id not in grouped_reasons:
+            it = item_map.get(item_id)
+            grouped_reasons[item_id] = {
+                "sap_code": it.sap_code if it else "N/A",
+                "description": it.description if it else "Material",
+                "count": 0,
+                "reason": reason,
+            }
+        grouped_reasons[item_id]["count"] += 1
+        # Si hay mezcla de razones para el mismo item, "peso_excedido" tiene prioridad
+        if reason == "peso_excedido":
+            grouped_reasons[item_id]["reason"] = "peso_excedido"
+
+    not_placed_details = [
+        NotPlacedDetail(**v) for v in grouped_reasons.values()
+    ]
+
     return OptimizeResponse(
         success=True,
         message=f"{mode_name}: {total_placed}/{len(packages)} paquetes",
@@ -1047,7 +1088,8 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
         beds_used=len(beds_stats),
         beds_stats=beds_stats,
         total_weight_kg=current_weight,
-        total_height_mm=total_height
+        total_height_mm=total_height,
+        not_placed_details=not_placed_details
     )
 
 

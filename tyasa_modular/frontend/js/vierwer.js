@@ -2147,15 +2147,26 @@ function repackBed(bedNum, platform = 1) {
         // Asignar posición
         pkg.x = currentX;
         pkg.z = currentZ;
-        
+
         // Avanzar X
         currentX += pkg.length_used;
-        
+
         // Actualizar altura de fila
         if (pkg.width_used > rowHeight) {
             rowHeight = pkg.width_used;
         }
     });
+
+    // Centrar los paquetes en el eje Z (ancho del transporte)
+    if (bedPkgs.length > 0) {
+        const minZ = Math.min(...bedPkgs.map(p => p.z));
+        const maxZ = Math.max(...bedPkgs.map(p => p.z + p.width_used));
+        const usedWidth = maxZ - minZ;
+        if (usedWidth < truckWidth) {
+            const offset = (truckWidth - usedWidth) / 2 - minZ;
+            bedPkgs.forEach(p => { p.z += offset; });
+        }
+    }
 }
 
 // Reacomodar y guardar — ordena los paquetes de la cama actual sin encimarse y persiste

@@ -555,6 +555,17 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                         bed_drawing = create_bed_view_with_coords(truck, bed_placements, load.items, bed_num, plat_num if is_dual else None)
                         elements.append(bed_drawing)
 
+                    # Nota de cama (tráiler/full)
+                    bed_note_lt = next((n for n in load.bed_notes if n.bed_number == bed_num), None)
+                    if bed_note_lt and bed_note_lt.note:
+                        note_style_lt = ParagraphStyle('NoteStyleLT', parent=styles['Normal'],
+                                                       fontSize=8, textColor=colors.HexColor("#92400e"),
+                                                       backColor=colors.HexColor("#fef3c7"),
+                                                       borderColor=colors.HexColor("#f59e0b"),
+                                                       borderWidth=1, borderPadding=5)
+                        elements.append(Spacer(1, 5))
+                        elements.append(Paragraph(f"<b>Nota:</b> {bed_note_lt.note}", note_style_lt))
+
                     # Tabla con columna Zona — primero Zona A, luego Zona B
                     bed_placements_sorted = sorted(bed_placements, key=lambda p: (0 if pkg_zona(p) == 'A' else 1, p.x))
                     bed_data = [["#", "SAP", "Descripción", "Dimensiones", "Peso", "Cal", "Almacén", "Zona", "Pos X"]]

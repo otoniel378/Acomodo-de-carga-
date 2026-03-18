@@ -434,16 +434,31 @@ function updateNotPlacedList() {
         grouped[key].kg += (mat?.kg_por_paquete || 0) / 1000;
     }
     
+    // Construir mapa de razones desde la última optimización
+    const reasonMap = {};
+    if (state.notPlacedDetails && state.notPlacedDetails.length > 0) {
+        for (const d of state.notPlacedDetails) {
+            reasonMap[d.sap_code] = d.reason;
+        }
+    }
+
     // Renderizar
     let html = '';
     for (const key in grouped) {
         const g = grouped[key];
+        const reason = reasonMap[g.sap_code];
+        let reasonLabel = '';
+        if (reason === 'peso_excedido') {
+            reasonLabel = `<span style="color:#f59e0b; font-size:0.8em; margin-left:6px;" title="El transporte alcanzó su límite de peso">(Peso excedido)</span>`;
+        } else if (reason === 'sin_espacio') {
+            reasonLabel = `<span style="color:#6366f1; font-size:0.8em; margin-left:6px;" title="No hay espacio o altura disponible en el transporte">(Sin espacio)</span>`;
+        }
         html += `<div style="display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid var(--border);">
-            <span><strong>${g.sap_code}</strong> - ${g.description.substring(0, 30)}...</span>
+            <span><strong>${g.sap_code}</strong> - ${g.description.substring(0, 30)}...${reasonLabel}</span>
             <span style="color:#ef4444;">${g.count} paq (${g.kg.toFixed(2)} ton)</span>
         </div>`;
     }
-    
+
     container.innerHTML = html;
 }
 
@@ -921,29 +936,44 @@ function openEditTruckModal() {
     openModal('modalEditTruck');
 }
 
-function applyTruckEdit() {
+async function applyTruckEdit() {
     if (!state.truck) return;
-    
-    const newL = parseInt($('editTruckL').value) || state.truck.length_mm;
-    const newW = parseInt($('editTruckW').value) || state.truck.width_mm;
-    const newH = parseInt($('editTruckH').value) || state.truck.height_mm;
+
+    const newL    = parseInt($('editTruckL').value)    || state.truck.length_mm;
+    const newW    = parseInt($('editTruckW').value)    || state.truck.width_mm;
+    const newH    = parseInt($('editTruckH').value)    || state.truck.height_mm;
     const newBeds = parseInt($('editTruckBeds').value) || state.truck.beds_count;
-    const newKg = parseInt($('editTruckKg').value) || state.truck.max_payload_kg;
-    
-    // Actualizar el state del camión (cambio temporal)
-    state.truck.length_mm = newL;
-    state.truck.width_mm = newW;
-    state.truck.height_mm = newH;
-    state.truck.beds_count = newBeds;
-    state.truck.max_payload_kg = newKg;
-    
-    closeModal('modalEditTruck');
-    toast('Dimensiones actualizadas (cambio temporal)', 'success');
-    
-    // Actualizar UI
-    updateTruckInfo();
-    updatePayloadInfo();
-    render3D();
+    const newKg   = parseInt($('editTruckKg').value)   || state.truck.max_payload_kg;
+
+    const payload = {
+        id: state.truck.id,
+        name: state.truck.name,
+        length_mm: newL,
+        width_mm: newW,
+        height_mm: newH,
+        beds_count: newBeds,
+        max_payload_kg: newKg,
+        is_dual_platform: state.truck.is_dual_platform || false,
+        platforms: state.truck.platforms || 1,
+        platform_gap_mm: state.truck.platform_gap_mm || 500
+    };
+
+    try {
+        const updated = await api.updateTruck(state.truck.id, payload);
+        // Actualizar state local
+        Object.assign(state.truck, updated);
+        // Actualizar en el array de camiones
+        const idx = state.trucks.findIndex(t => t.id === state.truck.id);
+        if (idx >= 0) Object.assign(state.trucks[idx], updated);
+
+        closeModal('modalEditTruck');
+        toast('Camión actualizado y guardado correctamente', 'success');
+        updateTruckInfo();
+        updatePayloadInfo();
+        render3D();
+    } catch (e) {
+        toast('Error al guardar camión: ' + e.message, 'error');
+    }
 }
 
 // Función para cambiar el modo de optimización
@@ -969,70 +999,84 @@ async function setOptimizeMode(mode) {
     }
 }
 
-// Etiquetas y colores por tipo de material
-const MAT_TYPE_LABELS = {
-    'LARGOS': { label: 'Largos (barras/varillas)', color: '#f59e0b' },
-    'SBQ':    { label: 'SBQ (calidad especial)',   color: '#8b5cf6' },
-    'PLANOS': { label: 'Planos (láminas)',          color: '#06b6d4' },
-    'GALV':   { label: 'Galvanizado',               color: '#10b981' },
+// Colores por tipo de material
+const MAT_TYPE_COLORS = {
+    'LARGOS': '#f59e0b', 'SBQ': '#8b5cf6', 'PLANOS': '#06b6d4', 'GALV': '#10b981'
 };
 
-// Abrir modal de prioridades (por familia/tipo de material)
+// Abrir modal de prioridades (por SAP + almacén)
 function openPriorityModal() {
     if (state.materials.length === 0) {
         toast('Agrega materiales primero para configurar prioridades', 'warning');
         return;
     }
 
-    // Obtener tipos de material presentes en la carga actual
-    const typesMap = {};
+    // Agrupar materiales únicos por (sap_code, almacen)
+    const groupsMap = {};
     state.materials.forEach(m => {
-        const t = m.material_type || m.tipo || 'LARGOS';
-        if (!typesMap[t]) typesMap[t] = 0;
-        typesMap[t]++;
+        const key = `${m.sap_code}||${m.almacen || ''}`;
+        if (!groupsMap[key]) {
+            groupsMap[key] = {
+                key,
+                sap_code: m.sap_code,
+                almacen: m.almacen || '',
+                material_type: m.material_type || 'LARGOS',
+                description: m.description || m.sap_code,
+                calibre: m.calibre || null,
+                count: 0
+            };
+        }
+        groupsMap[key].count += (m.num_paquetes || 1);
     });
 
-    const groups = Object.entries(typesMap).map(([mat_type, count]) => ({ mat_type, count }));
-    if (groups.length === 0) {
-        toast('No hay tipos de material para priorizar', 'warning');
-        return;
-    }
+    const groups = Object.values(groupsMap);
+    if (groups.length === 0) { toast('Sin materiales', 'warning'); return; }
 
-    // Ordenar por prioridad existente, luego alfabético
+    // Ordenar: forzados primero, luego por prioridad guardada, luego alfabético
     groups.sort((a, b) => {
-        const prioA = state.almacenPriorities.find(p => p.material_type === a.mat_type)?.priority || 999;
-        const prioB = state.almacenPriorities.find(p => p.material_type === b.mat_type)?.priority || 999;
-        if (prioA !== prioB) return prioA - prioB;
-        return a.mat_type.localeCompare(b.mat_type);
+        const pa = state.almacenPriorities.find(p => p.sap_code === a.sap_code && p.almacen === a.almacen);
+        const pb = state.almacenPriorities.find(p => p.sap_code === b.sap_code && p.almacen === b.almacen);
+        const fa = pa?.forced ? 0 : (pa?.priority || 999);
+        const fb = pb?.forced ? 0 : (pb?.priority || 999);
+        if (fa !== fb) return fa - fb;
+        return a.description.localeCompare(b.description);
     });
 
     const container = $('almacenPriorityList');
     container.innerHTML = '';
     const numGroups = groups.length;
 
-    // Nota informativa
     const note = document.createElement('div');
     note.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--surface);border-radius:4px;';
-    note.textContent = 'Prioridad 1 = se acomoda primero (camas inferiores). Sin configurar = el algoritmo decide imparcialmente con lo aprendido.';
+    note.textContent = 'Forzar = ese material se coloca SIEMPRE primero. Prioridad 1° = primero. Sin asignar = el algoritmo decide con lo aprendido.';
     container.appendChild(note);
 
     groups.forEach((group, idx) => {
-        const existingPrio = state.almacenPriorities.find(p => p.material_type === group.mat_type);
-        const priority = existingPrio ? existingPrio.priority : idx + 1;
-        const meta = MAT_TYPE_LABELS[group.mat_type] || { label: group.mat_type, color: '#6b7280' };
+        const saved = state.almacenPriorities.find(p => p.sap_code === group.sap_code && p.almacen === group.almacen);
+        const isForzado = saved?.forced || false;
+        const priority = saved?.priority || (idx + 1);
+        const color = MAT_TYPE_COLORS[group.material_type] || '#6b7280';
+        const almacenTag = group.almacen ? `<span style="font-size:10px;color:var(--muted);margin-left:4px;">${group.almacen}</span>` : '';
 
         const div = document.createElement('div');
-        div.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;';
+        div.style.cssText = `display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg-secondary);border:1px solid ${isForzado ? '#22c55e' : 'var(--border)'};border-radius:6px;margin-bottom:5px;`;
         div.innerHTML = `
-            <div style="font-size:12px;display:flex;align-items:center;gap:8px;">
-                <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${meta.color};flex-shrink:0;"></span>
-                <span style="font-weight:600;">${meta.label}</span>
-                <span style="font-size:10px;color:var(--muted);">(${group.count} paq)</span>
+            <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
+            <div style="flex:1;min-width:0;">
+                <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${group.sap_code} - ${group.description.substring(0,28)}</div>
+                <div style="font-size:10px;color:var(--muted);">${almacenTag} ${group.count} paq · Cal.${group.calibre || '—'}</div>
             </div>
+            <label style="font-size:11px;color:#22c55e;white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:3px;">
+                <input type="checkbox" class="forced-check"
+                    data-sap="${group.sap_code}" data-almacen="${group.almacen}"
+                    ${isForzado ? 'checked' : ''}>
+                Forzar
+            </label>
             <select class="priority-select"
-                data-material-type="${group.mat_type}"
-                style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:12px;">
-                <option value="0">— Sin prioridad —</option>
+                data-sap="${group.sap_code}" data-almacen="${group.almacen}"
+                data-material-type="${group.material_type}"
+                style="padding:3px 6px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:11px;width:60px;">
+                <option value="0">—</option>
                 ${Array.from({length: numGroups}, (_, i) =>
                     `<option value="${i+1}" ${priority === i+1 ? 'selected' : ''}>${i+1}°</option>`
                 ).join('')}
@@ -1044,27 +1088,27 @@ function openPriorityModal() {
     openModal('modalPriority');
 }
 
-// Guardar prioridades por tipo de material
+// Guardar prioridades por SAP + almacén
 function savePriorities() {
-    const selects = document.querySelectorAll('.priority-select');
     state.almacenPriorities = [];
 
-    selects.forEach(sel => {
+    document.querySelectorAll('.priority-select').forEach(sel => {
         const prio = parseInt(sel.value);
-        if (prio > 0) {
+        const forced = document.querySelector(`.forced-check[data-sap="${sel.dataset.sap}"][data-almacen="${sel.dataset.almacen}"]`)?.checked || false;
+        if (prio > 0 || forced) {
             state.almacenPriorities.push({
-                material_type: sel.dataset.materialType,
-                almacen: '',
+                sap_code: sel.dataset.sap,
+                almacen: sel.dataset.almacen,
+                material_type: sel.dataset.materialType || null,
                 calibre: null,
-                priority: prio
+                priority: forced ? 1 : prio,
+                forced
             });
         }
     });
 
-    state.almacenPriorities.sort((a, b) => a.priority - b.priority);
-
-    console.log('Prioridades guardadas:', state.almacenPriorities);
-    toast('Prioridades por familia guardadas', 'success');
+    state.almacenPriorities.sort((a, b) => (a.forced ? 0 : a.priority) - (b.forced ? 0 : b.priority));
+    toast('Prioridades guardadas', 'success');
     closeModal('modalPriority');
 }
 
@@ -1131,6 +1175,7 @@ async function optimize() {
         // Guardar stats de camas y altura total
         state.bedsStats = res.beds_stats || [];
         state.totalHeight = res.total_height_mm || 0;
+        state.notPlacedDetails = res.not_placed_details || [];
         
         // Obtener datos completos del servidor
         const data = await api.getLoad(state.loadId);

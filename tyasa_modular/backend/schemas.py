@@ -190,16 +190,18 @@ class AlmacenPriority(BaseModel):
     almacen: str = ""
     material_type: Optional[str] = None  # LARGOS, SBQ, PLANOS, GALV — prioridad por familia
     calibre: Optional[float] = None
-    priority: int  # 1 es el más importante
+    sap_code: Optional[str] = None       # Prioridad específica por clave SAP
+    priority: int  # 1 es el más importante (0 = forzado, va primero siempre)
+    forced: bool = False                 # Si True, ese material se coloca primero sin importar el resto
 
 class OptimizeRequest(BaseModel):
     load_id: int
-    mode: str = "opt1"  # "opt1" o "opt2" (opt2 = frontal primero)
-    almacen_priorities: List[AlmacenPriority] = []  # Lista de prioridades
-    truck_quantity: int = 1  # Cantidad de transportes (1, 2, 3...)
-    gap_floor_to_bed: int = 0  # Espacio del suelo a la primera cama (mm) - 0 = pegado al suelo
-    gap_between_beds: int = 100  # Espacio entre camas (mm) - default 10cm
-    center_packages: bool = True  # Centrar paquetes en el ancho de la cama
+    mode: str = "opt1"
+    almacen_priorities: List[AlmacenPriority] = []
+    truck_quantity: int = 1
+    gap_floor_to_bed: int = 0
+    gap_between_beds: int = 100
+    center_packages: bool = True
 
 class BedStats(BaseModel):
     bed_number: int
@@ -210,6 +212,12 @@ class BedStats(BaseModel):
     base_y: float = 0
     max_height: float = 0
 
+class NotPlacedDetail(BaseModel):
+    sap_code: str
+    description: str
+    count: int
+    reason: str  # "peso_excedido" | "sin_espacio"
+
 class OptimizeResponse(BaseModel):
     success: bool
     message: str
@@ -219,3 +227,4 @@ class OptimizeResponse(BaseModel):
     beds_stats: List[BedStats]
     total_weight_kg: float
     total_height_mm: float = 0  # Altura total desde piso hasta última cama
+    not_placed_details: List[NotPlacedDetail] = []
