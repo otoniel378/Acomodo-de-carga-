@@ -1530,6 +1530,9 @@ function highlightIn3D(p) {
 const MAX_HEIGHT_DIFF = 20; // mm — tolerancia de altura entre paquetes de la misma cama
 
 function validatePlacementEdit(newX, newZ, newBed, length, width, excludeId = null, platform = null, heightUsed = null) {
+    // En modo manual el experto decide — sin restricciones de altura ni calibre
+    if (state.manualMode) return { valid: true, message: 'Posición válida ✓' };
+
     if (!state.truck) return { valid: false, message: 'No hay camión seleccionado' };
 
     const maxL = state.truck.length_mm;
@@ -1604,30 +1607,42 @@ async function applyPlacementEdit() {
         return;
     }
     
-    // Calcular nueva Y basada en la cama destino
-    let newY = 0;
-    if (newBed > 1) {
-        // Buscar la altura máxima de las camas anteriores en la plana destino
-        const lowerPlacements = state.placements.filter(p => 
-            (p.platform || 1) === newPlatform && 
-            p.bed_number < newBed && 
-            p.placed
-        );
-        if (lowerPlacements.length > 0) {
-            const maxY = Math.max(...lowerPlacements.map(p => p.y + p.height_used));
-            newY = maxY + (state.gapBetweenBeds || 100); // Gap configurado entre camas
-        }
-    }
-    
     // Mover todos los paquetes seleccionados
     let movedCount = 0;
     let errorCount = 0;
-    
+
     // Ordenar los paquetes seleccionados para colocarlos en orden
     const sortedPlacements = [...selectedPlacements].sort((a, b) => {
         if (a.z !== b.z) return a.z - b.z;
         return a.x - b.x;
     });
+
+    // Calcular nueva Y basada en la cama destino
+    // Primero ver si la cama destino ya tiene paquetes con Y definida (excluir los que se mueven)
+    const movingIds = new Set(sortedPlacements.map(p => p.id));
+    const existingInDest = state.placements.filter(p =>
+        (p.platform || 1) === newPlatform &&
+        p.bed_number === newBed &&
+        p.placed &&
+        !movingIds.has(p.id)
+    );
+    let newY = 0;
+    if (existingInDest.length > 0) {
+        // Respetar la cama formada: usar la misma Y base de los paquetes ya colocados
+        newY = existingInDest[0].y;
+    } else if (newBed > 1) {
+        // Cama nueva: calcular desde la parte superior de las camas inferiores
+        const lowerPlacements = state.placements.filter(p =>
+            (p.platform || 1) === newPlatform &&
+            p.bed_number < newBed &&
+            p.placed &&
+            !movingIds.has(p.id)
+        );
+        if (lowerPlacements.length > 0) {
+            const maxY = Math.max(...lowerPlacements.map(p => p.y + p.height_used));
+            newY = maxY + (state.gapBetweenBeds || 100);
+        }
+    }
     
     // Modo manual: sin restricción de altura al cambiar camas.
     // El experto decide qué paquetes van en qué cama.
@@ -2142,6 +2157,37 @@ function repackBed(bedNum, platform = 1) {
         }
     });
 }
+
+// Reacomodar y guardar — ordena los paquetes de la cama actual sin encimarse y persiste
+async function repackAndSave() {
+    const bedNum = state.selectedBed;
+    const platform = state.selectedPlatform || 1;
+
+    if (!bedNum) { toast('Selecciona una cama primero', 'error'); return; }
+
+    repackBed(bedNum, platform);
+
+    // Guardar posiciones nuevas en el servidor
+    const bedPkgs = state.placements.filter(p =>
+        p.bed_number === bedNum && (p.platform || 1) === platform && p.placed
+    );
+    try {
+        for (const p of bedPkgs) {
+            await api.updatePlacement(p.id, { x: p.x, z: p.z });
+        }
+        if (state.load) state.load.status = 'MANUAL';
+        recalculateTotalHeight();
+        render3D();
+        draw2DWithMultiSelection(bedNum);
+        renderBedsTabs();
+        renderBedsDistribution();
+        renderBedMaterialsList(bedNum, platform);
+        toast(`Cama ${bedNum} reacomodada (${bedPkgs.length} paquetes)`, 'success');
+    } catch (e) {
+        toast('Error al reacomodar: ' + e.message, 'error');
+    }
+}
+window.repackAndSave = repackAndSave;
 
 // ==================== HIGHLIGHT PACKAGE IN 3D ====================
 let highlightedMesh = null;

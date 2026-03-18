@@ -639,12 +639,17 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
     
     print(f"\n[CONFIG] Camión: {truck.name}, Cantidad: {truck_quantity}, Planas: {num_platforms}, Payload: {total_max_payload}kg", flush=True)
     
-    # Prioridad por (almacén, calibre). Si calibre es None aplica a todos los calibres de ese almacén.
-    almacen_priority = {}
+    # Prioridad por familia (material_type) o almacén+calibre.
+    # Si el ítem tiene material_type definido en las prioridades, ese valor prevalece.
+    material_type_priority: dict = {}  # {material_type: priority}
+    almacen_priority: dict = {}        # {(almacen, calibre): priority} — legado
     if request.almacen_priorities:
         for ap in request.almacen_priorities:
-            cal = ap.calibre if ap.calibre is not None else None
-            almacen_priority[(ap.almacen, cal)] = ap.priority
+            if ap.material_type:
+                material_type_priority[ap.material_type] = ap.priority
+            else:
+                cal = ap.calibre if ap.calibre is not None else None
+                almacen_priority[(ap.almacen, cal)] = ap.priority
     
     db.query(Placement).filter(Placement.load_id == load.id).delete()
     
@@ -659,12 +664,16 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
     for item in items:
         calibre = item.calibre or 99
         almacen = item.almacen or ""
-        # Buscar prioridad: primero (almacén, calibre específico), luego (almacén, None = todos)
-        item_calibre_real = float(item.calibre) if item.calibre and item.calibre != 0 else None
-        priority = almacen_priority.get(
-            (almacen, item_calibre_real),
-            almacen_priority.get((almacen, None), 999)
-        )
+        mat_type = item.material_type or ""
+        # Prioridad: familia (material_type) > almacén+calibre > sin prioridad
+        if mat_type and mat_type in material_type_priority:
+            priority = material_type_priority[mat_type]
+        else:
+            item_calibre_real = float(item.calibre) if item.calibre and item.calibre != 0 else None
+            priority = almacen_priority.get(
+                (almacen, item_calibre_real),
+                almacen_priority.get((almacen, None), 999)
+            )
         is_deferred = getattr(item, 'is_deferred', False) or False
         
         print(f"[READ] Item {item.sap_code}: is_deferred={is_deferred}, alto={item.alto_mm}", flush=True)
@@ -679,6 +688,7 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                 "weight": float(item.kg_por_paquete or 1000),
                 "calibre": calibre,
                 "almacen": almacen,
+                "material_type": mat_type,
                 "almacen_priority": priority,
                 "is_deferred": is_deferred
             })

@@ -187,8 +187,9 @@ class LoadSearchRequest(BaseModel):
 
 # ==================== OPTIMIZE ====================
 class AlmacenPriority(BaseModel):
-    almacen: str
-    calibre: Optional[float] = None  # None = aplica a todos los calibres de este almacén
+    almacen: str = ""
+    material_type: Optional[str] = None  # LARGOS, SBQ, PLANOS, GALV — prioridad por familia
+    calibre: Optional[float] = None
     priority: int  # 1 es el más importante
 
 class OptimizeRequest(BaseModel):

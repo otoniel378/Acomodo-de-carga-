@@ -420,39 +420,27 @@ function renderBedsTabs() {
                 const zone = p.bed_zone || (p.x < 6025 ? 'A' : 'B');
                 return zone === 'B';
             });
-            
-            const bedsZoneA = [...new Set(zoneAPlacements.map(p => p.bed_number))].sort((a, b) => a - b);
-            const bedsZoneB = [...new Set(zoneBPlacements.map(p => p.bed_number))].sort((a, b) => a - b);
-            
-            if (bedsZoneA.length === 0 && bedsZoneB.length === 0) {
-                bedsZoneA.push(1);
-            }
-            
-            // Camas zona A (azul)
-            bedsZoneA.forEach((b, idx) => {
-                const cnt = zoneAPlacements.filter(p => p.bed_number === b).length;
-                const isActive = (plat === (state.selectedPlatform || 1)) && 
-                                (b === state.selectedBed) && 
-                                (state.selectedZone || 'A') === 'A';
-                
-                html += `<div class="bed-tab zone-a ${isActive ? 'active' : ''}"
-                             onclick="selectBedWithZone(${plat}, ${b}, 'A')"
-                             data-platform="${plat}" data-bed="${b}" data-zone="A">
-                    ${isDual ? `P${plat}-` : ''}Cama ${idx + 1}<span class="count">(${cnt})</span>
-                </div>`;
-            });
-            
-            // Camas zona B (naranja)
-            bedsZoneB.forEach((b, idx) => {
-                const cnt = zoneBPlacements.filter(p => p.bed_number === b).length;
-                const isActive = (plat === (state.selectedPlatform || 1)) && 
-                                (b === state.selectedBed) && 
-                                (state.selectedZone) === 'B';
-                
-                html += `<div class="bed-tab zone-b ${isActive ? 'active' : ''}"
-                             onclick="selectBedWithZone(${plat}, ${b}, 'B')"
-                             data-platform="${plat}" data-bed="${b}" data-zone="B">
-                    ${isDual ? `P${plat}-` : ''}Cama ${idx + 1}<span class="count">(${cnt})</span>
+
+            const allBedsInPlat = [...new Set(platPlacements.map(p => p.bed_number))].sort((a, b) => a - b);
+            if (allBedsInPlat.length === 0) allBedsInPlat.push(1);
+
+            // Una cama puede tener paquetes en ambas zonas (tras mover manualmente).
+            // Mostrarla una sola vez en la zona donde tenga más paquetes (zona A si empate).
+            allBedsInPlat.forEach((b) => {
+                const cntA = zoneAPlacements.filter(p => p.bed_number === b).length;
+                const cntB = zoneBPlacements.filter(p => p.bed_number === b).length;
+                const dominantZone = cntB > cntA ? 'B' : 'A';
+                const cnt = cntA + cntB;
+                const isActive = (plat === (state.selectedPlatform || 1)) && (b === state.selectedBed);
+                const zoneClass = dominantZone === 'B' ? 'zone-b' : 'zone-a';
+                const onclick = dominantZone === 'B'
+                    ? `selectBedWithZone(${plat}, ${b}, 'B')`
+                    : `selectBedWithZone(${plat}, ${b}, 'A')`;
+
+                html += `<div class="bed-tab ${zoneClass} ${isActive ? 'active' : ''}"
+                             onclick="${onclick}"
+                             data-platform="${plat}" data-bed="${b}" data-zone="${dominantZone}">
+                    ${isDual ? `P${plat}-` : ''}Cama ${b}<span class="count">(${cnt})</span>
                 </div>`;
             });
         } else {

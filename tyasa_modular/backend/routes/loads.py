@@ -612,12 +612,12 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                     bed_note = next((n for n in load.bed_notes if n.bed_number == bed_num), None)
                     if bed_note and bed_note.note:
                         note_style = ParagraphStyle('NoteStyle', parent=styles['Normal'],
-                                                   fontSize=8, textColor=colors.HexColor("#f59e0b"),
+                                                   fontSize=8, textColor=colors.HexColor("#92400e"),
                                                    backColor=colors.HexColor("#fef3c7"),
                                                    borderColor=colors.HexColor("#f59e0b"),
                                                    borderWidth=1, borderPadding=5)
                         elements.append(Spacer(1, 5))
-                        elements.append(Paragraph(f"<b>📝 Nota:</b> {bed_note.note}", note_style))
+                        elements.append(Paragraph(f"<b>Nota:</b> {bed_note.note}", note_style))
 
                     elements.append(Spacer(1, 5))
 

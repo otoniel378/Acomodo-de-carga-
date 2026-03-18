@@ -145,7 +145,7 @@
                         </button>
                     </div>
                     <button class="btn btn-sm btn-outline w-full mt-2" id="btnConfigPriority" style="font-size:11px;">
-                        ⚙️ Configurar Prioridad de Almacenes
+                        ⚙️ Prioridad por Familia de Material
                     </button>
                 </div>
                 
@@ -349,6 +349,8 @@
             <!-- Panel de Edición Manual (oculto por defecto) -->
             <div class="card" id="manualEditPanel" style="display:none;">
                 <div class="card-title">✏️ Editar Paquete</div>
+                <!-- Botón de reacomodo siempre visible en modo manual -->
+                <button class="btn btn-secondary btn-sm w-full mb-2" id="btnRepackBed" onclick="repackAndSave()" title="Acomoda los paquetes de la cama sin encimarse">⬛ Reacomodar cama actual</button>
                 <div id="selectedPkgInfo" class="selected-pkg-info mb-2">
                     Selecciona paquetes en la vista 2D<br><small>Ctrl+click para selección múltiple<br>Arrastra para mover</small>
                 </div>
@@ -699,13 +701,13 @@
 <div class="modal-backdrop" id="modalPriority">
     <div class="modal" style="max-width:450px;">
         <div class="modal-header">
-            <h3>⚙️ Prioridad de Almacenes</h3>
+            <h3>⚙️ Prioridad por Familia</h3>
             <button class="btn-close" onclick="closeModal('modalPriority')">×</button>
         </div>
         <div class="modal-body">
             <p style="font-size:12px;color:var(--muted);margin-bottom:15px;">
-                Asigna prioridad a cada familia de material (almacén + calibre). El <strong>1</strong> se acomoda primero.
-                Si hay varios calibres del mismo almacén, cada uno puede tener su propia prioridad.
+                Asigna prioridad por <strong>tipo de material</strong> (familia). El <strong>1°</strong> se coloca primero en camas inferiores.
+                Sin configurar, el algoritmo decide usando lo aprendido.
             </p>
             <div id="almacenPriorityList" style="max-height:350px;overflow-y:auto;">
                 <!-- Se llena dinámicamente -->

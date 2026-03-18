@@ -969,65 +969,72 @@ async function setOptimizeMode(mode) {
     }
 }
 
-// Abrir modal de prioridades (por familia: almacén + calibre)
+// Etiquetas y colores por tipo de material
+const MAT_TYPE_LABELS = {
+    'LARGOS': { label: 'Largos (barras/varillas)', color: '#f59e0b' },
+    'SBQ':    { label: 'SBQ (calidad especial)',   color: '#8b5cf6' },
+    'PLANOS': { label: 'Planos (láminas)',          color: '#06b6d4' },
+    'GALV':   { label: 'Galvanizado',               color: '#10b981' },
+};
+
+// Abrir modal de prioridades (por familia/tipo de material)
 function openPriorityModal() {
     if (state.materials.length === 0) {
         toast('Agrega materiales primero para configurar prioridades', 'warning');
         return;
     }
 
-    // Generar grupos únicos (almacén, calibre) desde los materiales cargados
-    const groupsMap = {};
+    // Obtener tipos de material presentes en la carga actual
+    const typesMap = {};
     state.materials.forEach(m => {
-        const almacen = m.almacen || 'Sin almacén';
-        const calibre = (m.calibre && m.calibre > 0) ? m.calibre : null;
-        const key = calibre !== null ? `${almacen}||${calibre}` : almacen;
-        if (!groupsMap[key]) {
-            groupsMap[key] = { key, almacen, calibre, count: 0 };
-        }
-        groupsMap[key].count++;
+        const t = m.material_type || m.tipo || 'LARGOS';
+        if (!typesMap[t]) typesMap[t] = 0;
+        typesMap[t]++;
     });
 
-    const groups = Object.values(groupsMap);
+    const groups = Object.entries(typesMap).map(([mat_type, count]) => ({ mat_type, count }));
     if (groups.length === 0) {
-        toast('No hay grupos de materiales para priorizar', 'warning');
+        toast('No hay tipos de material para priorizar', 'warning');
         return;
     }
 
-    // Ordenar por prioridad existente, luego por almacén+calibre
+    // Ordenar por prioridad existente, luego alfabético
     groups.sort((a, b) => {
-        const prioA = state.almacenPriorities.find(p => p.almacen === a.almacen && p.calibre === a.calibre)?.priority || 999;
-        const prioB = state.almacenPriorities.find(p => p.almacen === b.almacen && p.calibre === b.calibre)?.priority || 999;
+        const prioA = state.almacenPriorities.find(p => p.material_type === a.mat_type)?.priority || 999;
+        const prioB = state.almacenPriorities.find(p => p.material_type === b.mat_type)?.priority || 999;
         if (prioA !== prioB) return prioA - prioB;
-        if (a.almacen !== b.almacen) return a.almacen.localeCompare(b.almacen);
-        return (a.calibre || 0) - (b.calibre || 0);
+        return a.mat_type.localeCompare(b.mat_type);
     });
 
     const container = $('almacenPriorityList');
     container.innerHTML = '';
     const numGroups = groups.length;
 
-    groups.forEach((group, idx) => {
-        const existingPrio = state.almacenPriorities.find(p => p.almacen === group.almacen && p.calibre === group.calibre);
-        const priority = existingPrio ? existingPrio.priority : idx + 1;
+    // Nota informativa
+    const note = document.createElement('div');
+    note.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--surface);border-radius:4px;';
+    note.textContent = 'Prioridad 1 = se acomoda primero (camas inferiores). Sin configurar = el algoritmo decide imparcialmente con lo aprendido.';
+    container.appendChild(note);
 
-        const calibreTag = group.calibre !== null
-            ? `<span style="font-size:11px;background:var(--surface);border:1px solid var(--border);padding:1px 6px;border-radius:4px;margin-left:6px;">Cal. ${group.calibre}</span>`
-            : '';
-        const countTag = `<span style="font-size:10px;color:var(--muted);margin-left:6px;">(${group.count} paq)</span>`;
+    groups.forEach((group, idx) => {
+        const existingPrio = state.almacenPriorities.find(p => p.material_type === group.mat_type);
+        const priority = existingPrio ? existingPrio.priority : idx + 1;
+        const meta = MAT_TYPE_LABELS[group.mat_type] || { label: group.mat_type, color: '#6b7280' };
 
         const div = document.createElement('div');
         div.style.cssText = 'display:flex;justify-content:space-between;align-items:center;padding:8px 10px;background:var(--bg-secondary);border:1px solid var(--border);border-radius:6px;margin-bottom:6px;';
         div.innerHTML = `
-            <div style="font-size:12px;">
-                <span style="font-weight:600;">${group.almacen}</span>${calibreTag}${countTag}
+            <div style="font-size:12px;display:flex;align-items:center;gap:8px;">
+                <span style="display:inline-block;width:10px;height:10px;border-radius:50%;background:${meta.color};flex-shrink:0;"></span>
+                <span style="font-weight:600;">${meta.label}</span>
+                <span style="font-size:10px;color:var(--muted);">(${group.count} paq)</span>
             </div>
             <select class="priority-select"
-                data-almacen="${group.almacen}"
-                data-calibre="${group.calibre !== null ? group.calibre : ''}"
+                data-material-type="${group.mat_type}"
                 style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:12px;">
+                <option value="0">— Sin prioridad —</option>
                 ${Array.from({length: numGroups}, (_, i) =>
-                    `<option value="${i+1}" ${priority === i+1 ? 'selected' : ''}>${i+1}</option>`
+                    `<option value="${i+1}" ${priority === i+1 ? 'selected' : ''}>${i+1}°</option>`
                 ).join('')}
             </select>
         `;
@@ -1037,25 +1044,27 @@ function openPriorityModal() {
     openModal('modalPriority');
 }
 
-// Guardar prioridades (incluye calibre por familia)
+// Guardar prioridades por tipo de material
 function savePriorities() {
     const selects = document.querySelectorAll('.priority-select');
     state.almacenPriorities = [];
 
     selects.forEach(sel => {
-        const calibreVal = sel.dataset.calibre;
-        const calibre = (calibreVal !== undefined && calibreVal !== '') ? parseFloat(calibreVal) : null;
-        state.almacenPriorities.push({
-            almacen: sel.dataset.almacen,
-            calibre: calibre,
-            priority: parseInt(sel.value)
-        });
+        const prio = parseInt(sel.value);
+        if (prio > 0) {
+            state.almacenPriorities.push({
+                material_type: sel.dataset.materialType,
+                almacen: '',
+                calibre: null,
+                priority: prio
+            });
+        }
     });
 
     state.almacenPriorities.sort((a, b) => a.priority - b.priority);
 
     console.log('Prioridades guardadas:', state.almacenPriorities);
-    toast('Prioridades guardadas', 'success');
+    toast('Prioridades por familia guardadas', 'success');
     closeModal('modalPriority');
 }
 
