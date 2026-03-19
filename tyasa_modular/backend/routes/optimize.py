@@ -736,46 +736,59 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
 
     total_patterns = len(learned_patterns)
 
-    # Score default normalizado (0=primero, 1=último) equivalente al sort clásico
-    max_almacen_p = max((p["almacen_priority"] for p in packages), default=999) or 1
-    max_calibre   = max((p["calibre"] for p in packages), default=20) or 20
-    max_height    = max((p["height"]  for p in packages), default=500) or 500
-    max_area      = max((p["length"] * p["width"] for p in packages), default=1) or 1
+    # ── Métricas para normalización (solo usadas en score sin prioridad explícita) ──
+    max_calibre = max((p["calibre"] for p in packages), default=20) or 20
+    max_height  = max((p["height"]  for p in packages), default=500) or 500
+    max_area    = max((p["length"] * p["width"] for p in packages), default=1) or 1
 
-    def default_score_opt(p):
-        s_alm  = p["almacen_priority"] / max_almacen_p
+    def no_priority_score(p):
+        """Score para materiales SIN prioridad explícita (almacen_priority == 999)."""
         s_cal  = p["calibre"] / max_calibre
         s_h    = 1.0 - p["height"] / max_height
         s_area = 1.0 - (p["length"] * p["width"]) / max_area
-        return s_alm * 0.50 + s_cal * 0.30 + s_h * 0.10 + s_area * 0.10
-
-    def blended_score_opt(p):
-        d_score = default_score_opt(p)
-        fkey    = _feature_key_opt(p)
-        pat     = learned_patterns.get(fkey)
+        base = s_cal * 0.60 + s_h * 0.25 + s_area * 0.15
+        # Mezclar con patrones aprendidos si existen
+        fkey = _feature_key_opt(p)
+        pat  = learned_patterns.get(fkey)
         if pat and pat["times_seen"] > 0:
-            # Alpha crece con más datos: 0.10 con 1 carga → 0.60 con ~30 cargas
             alpha = min(0.60, 0.10 + 0.05 * math.log(max(1, pat["times_seen"])))
-            return (1.0 - alpha) * d_score + alpha * pat["avg_priority"]
-        return d_score
+            return (1.0 - alpha) * base + alpha * pat["avg_priority"]
+        return base
 
     if total_patterns > 0:
         print(f"[LEARN] {total_patterns} patrones aprendidos disponibles para {load.truck_id}", flush=True)
 
-    # Ordenar: prioridad almacén, CALIBRE (menor a mayor: 14, 18, 20...), altura DESC, área DESC
-    # Esto garantiza que calibre 14 se procese primero, luego 18, luego 20, etc.
-    # Si hay patrones aprendidos, se usa score combinado (default + aprendido)
-    if total_patterns > 0:
-        packages.sort(key=blended_score_opt)
+    # ── Detectar si el usuario fijó prioridades explícitas ──────────────────
+    has_explicit = any(p["almacen_priority"] < 999 for p in packages)
+
+    if has_explicit:
+        # Prioridades explícitas mandan: se respetan al pie de la letra.
+        # Materiales con prioridad asignada (< 999) van antes que los sin asignar.
+        # Dentro del mismo número de prioridad se desempata por calibre/altura/área.
+        # Materiales sin prioridad (999) van al final, ordenados por score.
+        def explicit_key(p):
+            prio = p["almacen_priority"]
+            if prio < 999:
+                # Tier 0: prioridad exacta, luego calibre ASC, altura DESC, área DESC
+                return (0, float(prio), float(p["calibre"]), -float(p["height"]),
+                        -float(p["length"]) * float(p["width"]))
+            else:
+                # Tier 1: sin prioridad → va al final, sub-ordenado por score
+                return (1, no_priority_score(p), float(p["calibre"]),
+                        -float(p["height"]), -float(p["length"]) * float(p["width"]))
+        packages.sort(key=explicit_key)
+    elif total_patterns > 0:
+        # Sin prioridades explícitas: ordenar solo por score aprendido + calibre/altura
+        packages.sort(key=lambda p: (no_priority_score(p), p["calibre"],
+                                     -p["height"], -(p["length"] * p["width"])))
     else:
-        packages.sort(key=lambda p: (p["almacen_priority"], p["calibre"], -p["height"], -(p["length"] * p["width"])))
+        # Sin prioridades ni patrones: calibre ASC, altura DESC, área DESC
+        packages.sort(key=lambda p: (p["calibre"], -p["height"],
+                                     -(p["length"] * p["width"])))
     
-    print(f"\n[DEBUG] Orden de procesamiento:", flush=True)
-    calibres_vistos = []
+    print(f"\n[DEBUG] Orden de procesamiento (has_explicit={has_explicit}):", flush=True)
     for pkg in packages[:20]:
-        if pkg["calibre"] not in calibres_vistos:
-            calibres_vistos.append(pkg["calibre"])
-            print(f"  Calibre {pkg['calibre']}: altura={pkg['height']}mm", flush=True)
+        print(f"  prio={pkg['almacen_priority']} cal={pkg['calibre']} h={pkg['height']}mm sap={pkg.get('sap','')}", flush=True)
     
     # SEPARAR paquetes normales de diferidos
     # Diferidos = marcados como is_deferred por el usuario
