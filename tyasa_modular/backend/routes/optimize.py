@@ -698,6 +698,7 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
             packages.append({
                 "item_id": item.id,
                 "pkg_index": idx,
+                "sap": sap,
                 "length": float(item.largo_mm or 1000),
                 "width": float(item.ancho_mm or 500),
                 "height": float(item.alto_mm or 300),
@@ -711,6 +712,8 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
     sys.stdout.flush()
     
     # ── Cargar patrones aprendidos de cargas verificadas ─────────────────────
+    from database import BedPattern as BedPatternModel, MaterialCombo as MaterialComboModel
+
     learned_patterns: dict = {}
     try:
         db_patterns = db.query(PlacementPattern).filter(
@@ -724,6 +727,46 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
             }
     except Exception as e:
         print(f"[LEARN] No se pudieron cargar patrones: {e}", flush=True)
+
+    # ── BedPattern: zona y cama típica por familia de material ────────────────
+    # {feature_key: {zone: {typical_bed_norm, times_seen}}}
+    learned_bed_patterns: dict = {}
+    try:
+        bps = db.query(BedPatternModel).filter(
+            BedPatternModel.truck_type_id == load.truck_id
+        ).all()
+        if bps:
+            max_bp_bed = max(bp.typical_bed_number for bp in bps) or 1
+            for bp in bps:
+                if bp.feature_key not in learned_bed_patterns:
+                    learned_bed_patterns[bp.feature_key] = {}
+                learned_bed_patterns[bp.feature_key][bp.zone] = {
+                    "typical_bed_norm": (bp.typical_bed_number - 1) / max(1, max_bp_bed - 1),
+                    "times_seen": bp.times_seen,
+                }
+        print(f"[LEARN] {len(bps)} BedPatterns cargados", flush=True)
+    except Exception as e:
+        print(f"[LEARN] BedPatterns no cargados: {e}", flush=True)
+
+    # ── MaterialCombo: SAPs que van juntos en la misma cama ───────────────────
+    # {sap_code: {partner_sap: avg_bed_norm}}
+    learned_combos: dict = {}
+    try:
+        combos_db = db.query(MaterialComboModel).filter(
+            MaterialComboModel.truck_type_id == load.truck_id,
+            MaterialComboModel.same_bed_count >= 2,
+        ).all()
+        if combos_db:
+            max_cb_bed = max(c.avg_bed_number for c in combos_db) or 1
+            for c in combos_db:
+                bed_norm = (c.avg_bed_number - 1) / max(1, max_cb_bed - 1)
+                for a, b in [(c.sap_code_a, c.sap_code_b), (c.sap_code_b, c.sap_code_a)]:
+                    if a not in learned_combos:
+                        learned_combos[a] = {}
+                    learned_combos[a][b] = bed_norm
+        print(f"[LEARN] {len(combos_db)} MaterialCombos cargados", flush=True)
+    except Exception as e:
+        print(f"[LEARN] MaterialCombos no cargados: {e}", flush=True)
 
     def _calibre_bucket_opt(c):
         if not c or c <= 0:
@@ -741,6 +784,29 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
     max_height  = max((p["height"]  for p in packages), default=500) or 500
     max_area    = max((p["length"] * p["width"] for p in packages), default=1) or 1
 
+    # Contar cuántas familias de paquetes tienen un patrón aprendido.
+    # Para los que tienen prioridad explícita, el alpha es más bajo (máx 25%).
+    # Para los sin prioridad, el alpha puede llegar al 60%.
+    patterns_applied_count = 0
+    avg_alpha_sum = 0.0
+    unique_fkeys_explicit = set(
+        _feature_key_opt(p) for p in packages if p["almacen_priority"] < 999
+    )
+    unique_fkeys_free = set(
+        _feature_key_opt(p) for p in packages if p["almacen_priority"] >= 999
+    )
+    for fk in unique_fkeys_explicit:
+        pat = learned_patterns.get(fk)
+        if pat and pat["times_seen"] > 0:
+            patterns_applied_count += 1
+            avg_alpha_sum += min(0.25, 0.05 + 0.025 * math.log(max(1, pat["times_seen"])))
+    for fk in unique_fkeys_free:
+        pat = learned_patterns.get(fk)
+        if pat and pat["times_seen"] > 0:
+            patterns_applied_count += 1
+            avg_alpha_sum += min(0.60, 0.10 + 0.05 * math.log(max(1, pat["times_seen"])))
+    avg_alpha = (avg_alpha_sum / patterns_applied_count) if patterns_applied_count > 0 else 0.0
+
     def no_priority_score(p):
         """Score para materiales SIN prioridad explícita (almacen_priority == 999)."""
         s_cal  = p["calibre"] / max_calibre
@@ -756,39 +822,92 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
         return base
 
     if total_patterns > 0:
-        print(f"[LEARN] {total_patterns} patrones aprendidos disponibles para {load.truck_id}", flush=True)
+        print(f"[LEARN] {total_patterns} patrones cargados, {patterns_applied_count} aplican a esta carga (α avg={avg_alpha:.2f}) para {load.truck_id}", flush=True)
 
-    # ── Detectar si el usuario fijó prioridades explícitas ──────────────────
+    # ── Calcular max prioridad explícita para normalización ─────────────────
     has_explicit = any(p["almacen_priority"] < 999 for p in packages)
+    max_explicit_prio = max(
+        (p["almacen_priority"] for p in packages if p["almacen_priority"] < 999),
+        default=1
+    ) or 1
 
-    if has_explicit:
-        # Prioridades explícitas mandan: se respetan al pie de la letra.
-        # Materiales con prioridad asignada (< 999) van antes que los sin asignar.
-        # Dentro del mismo número de prioridad se desempata por calibre/altura/área.
-        # Materiales sin prioridad (999) van al final, ordenados por score.
-        def explicit_key(p):
-            prio = p["almacen_priority"]
-            if prio < 999:
-                # Tier 0: prioridad exacta, luego calibre ASC, altura DESC, área DESC
-                return (0, float(prio), float(p["calibre"]), -float(p["height"]),
-                        -float(p["length"]) * float(p["width"]))
+    # ── Función de ordenamiento UNIFICADA: prioridad + aprendizaje ───────────
+    # La prioridad explícita del usuario manda (75-95% del peso).
+    # El aprendizaje refina el orden (5-25% del peso, crece con más cargas).
+    # Si no hay prioridad explícita, el material va al Tier 1 (al final).
+    # Si no hay aprendizaje, solo se usa prioridad/calibre/altura.
+    def unified_sort_key(p):
+        prio = p["almacen_priority"]
+        fkey = _feature_key_opt(p)
+        pat  = learned_patterns.get(fkey)
+        bp   = learned_bed_patterns.get(fkey)  # BedPattern para esta familia
+
+        # Aporte de BedPattern: cama típica normalizada (0=frontal, 1=trasera)
+        # Se usa como desempate fino dentro del mismo tier
+        bed_score = 0.5  # centro por defecto si no hay patrón
+        if bp:
+            # Tomar el patrón de zona con más observaciones (mayor confianza)
+            zone_scores = list(bp.values())
+            if zone_scores:
+                best = max(zone_scores, key=lambda z: z["times_seen"])
+                bed_alpha = min(0.20, 0.04 * math.log(max(1, best["times_seen"])))
+                bed_score = best["typical_bed_norm"] * bed_alpha + 0.5 * (1 - bed_alpha)
+
+        if prio < 999:
+            # ── Tier 0: material con prioridad explícita ──────────────────────
+            # Normalizar prioridad del usuario a [0, 1]
+            if max_explicit_prio > 1:
+                explicit_norm = (float(prio) - 1.0) / float(max_explicit_prio - 1)
             else:
-                # Tier 1: sin prioridad → va al final, sub-ordenado por score
-                return (1, no_priority_score(p), float(p["calibre"]),
-                        -float(p["height"]), -float(p["length"]) * float(p["width"]))
-        packages.sort(key=explicit_key)
-    elif total_patterns > 0:
-        # Sin prioridades explícitas: ordenar solo por score aprendido + calibre/altura
-        packages.sort(key=lambda p: (no_priority_score(p), p["calibre"],
-                                     -p["height"], -(p["length"] * p["width"])))
-    else:
-        # Sin prioridades ni patrones: calibre ASC, altura DESC, área DESC
-        packages.sort(key=lambda p: (p["calibre"], -p["height"],
-                                     -(p["length"] * p["width"])))
-    
-    print(f"\n[DEBUG] Orden de procesamiento (has_explicit={has_explicit}):", flush=True)
+                explicit_norm = 0.0
+
+            if pat and pat["times_seen"] > 0:
+                # El aprendizaje puede influir hasta un 25% (crece lento para
+                # no anular la decisión explícita del usuario).
+                learn_alpha = min(0.25, 0.05 + 0.025 * math.log(max(1, pat["times_seen"])))
+                score = (1.0 - learn_alpha) * explicit_norm + learn_alpha * pat["avg_priority"]
+            else:
+                score = explicit_norm
+
+            # Desempate fino: calibre ASC, altura DESC, cama aprendida
+            return (0, score, p["calibre"] / max_calibre, -p["height"] / max_height, bed_score)
+        else:
+            # ── Tier 1: sin prioridad → va al final, ordenado por aprendizaje + calibre ─
+            return (1, no_priority_score(p), p["calibre"] / max_calibre, -p["height"] / max_height, bed_score)
+
+    packages.sort(key=unified_sort_key)
+
+    # ── Agrupación por combos aprendidos ─────────────────────────────────────
+    # Si el sistema aprendió que dos SAPs van juntos en la misma cama,
+    # los acerca en el orden para que el optimizer los coloque consecutivamente.
+    if learned_combos:
+        n = len(packages)
+        used = [False] * n
+        result = []
+        for i in range(n):
+            if used[i]:
+                continue
+            used[i] = True
+            result.append(packages[i])
+            sap_i = packages[i].get("sap", "")
+            partners = learned_combos.get(sap_i, {})
+            if partners:
+                for j in range(i + 1, n):
+                    if not used[j] and packages[j].get("sap", "") in partners:
+                        used[j] = True
+                        result.append(packages[j])
+        if len(result) == len(packages):
+            packages[:] = result
+            print(f"[LEARN] Combos aplicados: orden ajustado para {len(learned_combos)} SAPs", flush=True)
+
+    print(f"\n[DEBUG] Orden de procesamiento (has_explicit={has_explicit}, patrones={patterns_applied_count}):", flush=True)
     for pkg in packages[:20]:
-        print(f"  prio={pkg['almacen_priority']} cal={pkg['calibre']} h={pkg['height']}mm sap={pkg.get('sap','')}", flush=True)
+        pat_info = ""
+        pat = learned_patterns.get(_feature_key_opt(pkg))
+        if pat:
+            la = min(0.25, 0.05 + 0.025 * math.log(max(1, pat["times_seen"])))
+            pat_info = f" [aprendido: avg_prio={pat['avg_priority']:.2f} α={la:.2f}]"
+        print(f"  prio={pkg['almacen_priority']} cal={pkg['calibre']} h={pkg['height']}mm{pat_info}", flush=True)
     
     # SEPARAR paquetes normales de diferidos
     # Diferidos = marcados como is_deferred por el usuario
@@ -1102,7 +1221,9 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
         beds_stats=beds_stats,
         total_weight_kg=current_weight,
         total_height_mm=total_height,
-        not_placed_details=not_placed_details
+        not_placed_details=not_placed_details,
+        patterns_applied=patterns_applied_count,
+        learning_alpha=round(avg_alpha, 3),
     )
 
 

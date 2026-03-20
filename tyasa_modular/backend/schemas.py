@@ -228,3 +228,5 @@ class OptimizeResponse(BaseModel):
     total_weight_kg: float
     total_height_mm: float = 0  # Altura total desde piso hasta última cama
     not_placed_details: List[NotPlacedDetail] = []
+    patterns_applied: int = 0      # Cuántos patrones aprendidos influyeron en el orden
+    learning_alpha: float = 0.0    # Influencia actual del aprendizaje (0.0-0.6)

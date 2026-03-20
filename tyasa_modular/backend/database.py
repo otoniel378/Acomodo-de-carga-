@@ -183,6 +183,50 @@ class VerifiedLoad(Base):
     verified_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
 
+class CargaInstruction(Base):
+    """Instrucciones completas de carga por embarque."""
+    __tablename__ = "carga_instructions"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    numero_embarque = Column(String, default="")
+    numero_viaje = Column(String, default="")
+    cliente = Column(String, default="")
+    load_id = Column(Integer, ForeignKey("loads.id"), nullable=True)
+    instruction_text = Column(String, default="")
+    created_at = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class BedPattern(Base):
+    """
+    Patrón aprendido por cama:
+    zona (A=concha, B=ejes), posición (CENTER/SPREAD/LEFT/RIGHT),
+    paquetes típicos por cama, número de cama típico.
+    """
+    __tablename__ = "bed_patterns"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    truck_type_id = Column(String, nullable=True)
+    feature_key = Column(String, nullable=False)
+    sap_codes_combo = Column(String, default="")
+    zone = Column(String, default="A")
+    preferred_position = Column(String, default="CENTER")
+    typical_pkgs_per_bed = Column(Float, default=7.0)
+    typical_bed_number = Column(Float, default=1.0)
+    times_seen = Column(Integer, default=0)
+    last_updated = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
+class MaterialCombo(Base):
+    """Aprende qué SAP codes suelen ir juntos en la misma cama."""
+    __tablename__ = "material_combos"
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    truck_type_id = Column(String, nullable=True)
+    sap_code_a = Column(String, nullable=False)
+    sap_code_b = Column(String, nullable=False)
+    same_bed_count = Column(Integer, default=0)
+    total_loads_seen = Column(Integer, default=0)
+    avg_bed_number = Column(Float, default=1.0)
+    last_updated = Column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+
+
 # ==================== FUNCIONES ====================
 
 def get_db():

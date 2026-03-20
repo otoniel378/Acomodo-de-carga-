@@ -144,9 +144,15 @@
                             Optimización 2
                         </button>
                     </div>
-                    <button class="btn btn-sm btn-outline w-full mt-2" id="btnConfigPriority" style="font-size:11px;">
-                        ⚙️ Prioridad por Familia de Material
-                    </button>
+                    <div style="display:flex;align-items:center;gap:6px;margin-top:8px;">
+                        <button class="btn btn-sm btn-outline" id="btnConfigPriority" style="font-size:11px;flex:1;">
+                            ⚙️ Prioridades
+                        </button>
+                        <label style="display:flex;align-items:center;gap:5px;font-size:11px;color:var(--muted);cursor:pointer;white-space:nowrap;" title="Activar/desactivar prioridades en la optimización">
+                            <input type="checkbox" id="usePriorities" checked style="width:14px;height:14px;cursor:pointer;">
+                            Aplicar
+                        </label>
+                    </div>
                 </div>
                 
                 <!-- Configuración de espaciado entre camas -->
@@ -170,6 +176,9 @@
                     </div>
                 </div>
                 
+                <button class="btn-suggestions" id="btnVerSugerencias" disabled onclick="openSuggestions()">
+                  🧠 Ver Sugerencias de Acomodo
+                </button>
                 <button class="btn btn-primary btn-lg w-full" id="btnOptimizar">⚡ Optimizar Acomodo</button>
                 <button class="btn w-full" id="btnVerificarAprender" style="background:var(--green);color:#fff;font-weight:bold;opacity:0.5;cursor:not-allowed;" disabled title="Optimiza la carga primero para habilitar esta opción">✅ Verificar y Aprender</button>
                 <div class="grid-2">
@@ -773,6 +782,23 @@
             <button class="btn btn-secondary" onclick="closeModal('modalBusquedaMultiple')">Cerrar</button>
         </div>
     </div>
+</div>
+
+<!-- Modal Sugerencias de Acomodo -->
+<div class="suggestions-modal" id="modalSugerencias">
+  <div class="suggestions-box">
+    <div class="suggestions-header">
+      <h3>🧠 Sugerencias de Acomodo</h3>
+      <button class="suggestions-close" onclick="closeSuggestions()">×</button>
+    </div>
+    <div class="suggestions-body" id="suggestionsBody">
+      <div class="sug-loading">Cargando sugerencias...</div>
+    </div>
+    <div class="sug-footer">
+      <button class="btn btn-secondary" style="flex:1" onclick="closeSuggestions()">Cerrar</button>
+      <button class="btn btn-primary" style="flex:1" onclick="closeSuggestions(); optimize()">⚡ Optimizar ahora</button>
+    </div>
+  </div>
 </div>
 
 <!-- Toast -->

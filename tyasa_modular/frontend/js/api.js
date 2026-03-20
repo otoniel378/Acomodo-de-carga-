@@ -191,6 +191,15 @@ const api = {
 
     async autoLearn(loadId) {
         return this.request(`/api/loads/${loadId}/auto-learn`, { method: 'POST' });
+    },
+
+    async rebuildPatterns() {
+        return this.request('/api/learning/rebuild', { method: 'POST' });
+    },
+
+    async getLearningDiagnostics(truckTypeId = null) {
+        const q = truckTypeId ? `?truck_type_id=${truckTypeId}` : '';
+        return this.request(`/api/learning/diagnostics${q}`);
     }
 };
 

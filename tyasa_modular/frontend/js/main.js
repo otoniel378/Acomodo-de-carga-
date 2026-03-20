@@ -1125,6 +1125,7 @@ async function optimize() {
     const gapFloorToBed = (parseFloat($('gapFloorToBed')?.value) || 0) * 10; // cm a mm
     const gapBetweenBeds = (parseFloat($('gapBetweenBeds')?.value) || 10) * 10; // cm a mm
     const centerPackages = $('centerPackages')?.checked !== false; // default true
+    const usePriorities = $('usePriorities')?.checked !== false; // default true
     
     // Guardar copia local de materiales ANTES de todo
     const materialesLocal = JSON.parse(JSON.stringify(state.materials));
@@ -1166,7 +1167,8 @@ async function optimize() {
         const truckQuantity = state.truckQuantity || parseInt($('truckQuantity')?.value) || 1;
         
         // Optimizar con el modo seleccionado, prioridades, cantidad de transportes y configuración de espaciado
-        const res = await api.optimize(state.loadId, optimizeMode, state.almacenPriorities, truckQuantity, gapFloorToBed, gapBetweenBeds, centerPackages);
+        const prioridades = usePriorities ? state.almacenPriorities : [];
+        const res = await api.optimize(state.loadId, optimizeMode, prioridades, truckQuantity, gapFloorToBed, gapBetweenBeds, centerPackages);
         console.log('Resultado optimización:', res);
         // Guardar configuración de gaps para usarla en movimientos manuales
         state.gapBetweenBeds = gapBetweenBeds;
@@ -1235,13 +1237,17 @@ async function optimize() {
 
         // Habilitar botón de verificar ahora que hay placements
         enableVerifyButton(true);
+        enableSuggestionsButton(true);
 
         // Mostrar mensaje con sin colocar si hay
         const notPlaced = state.placements.filter(p => !p.placed).length;
+        const learnInfo = res.patterns_applied > 0
+            ? ` · 🧠 ${res.patterns_applied} patrones (${Math.round((res.learning_alpha || 0) * 100)}% influencia)`
+            : '';
         if (notPlaced > 0) {
-            toast(`⚠️ ${res.placed_packages}/${res.total_packages} paquetes - ${notPlaced} sin colocar`, 'warning');
+            toast(`⚠️ ${notPlaced} sin colocar${learnInfo}`, 'warning');
         } else {
-            toast(`✓ ${res.placed_packages}/${res.total_packages} paquetes en ${res.beds_used} camas`, 'success');
+            toast(`✓ ${res.total_placed} paquetes en ${res.beds_used} camas${learnInfo}`, 'success');
         }
     } catch (e) {
         console.error('Error optimizando:', e);
@@ -1611,6 +1617,7 @@ function bindEvents() {
         const btnV = $('btnVerificarAprender');
         if (btnV) { btnV.textContent = '✅ Verificar y Aprender'; }
         enableVerifyButton(false);
+        enableSuggestionsButton(false);
 
         toast('Nueva carga iniciada', 'info');
         updateAllUI();
@@ -1789,6 +1796,9 @@ function enableVerifyButton(enabled) {
         btn.style.cursor = 'not-allowed';
         btn.title = 'Optimiza la carga primero para habilitar esta opción';
     }
+    if (typeof enableSuggestionsButton === 'function') {
+        enableSuggestionsButton(enabled);
+    }
 }
 
 async function verifyLoad() {
@@ -1832,8 +1842,9 @@ async function loadLearningStats() {
 
         if (stats.verified_loads > 0) {
             badge.style.display = 'block';
-            const reliable = stats.reliable_patterns > 0 ? ` · ${stats.reliable_patterns} patrones confiables` : '';
-            text.textContent = `Aprendido de ${stats.verified_loads} carga(s) · ${stats.total_packages_learned} paquetes${reliable}`;
+            const bedInfo = stats.bed_patterns > 0 ? ` · ${stats.bed_patterns} patrones de zona` : '';
+            const comboInfo = stats.material_combos_learned > 0 ? ` · ${stats.material_combos_learned} combos` : '';
+            text.textContent = `Aprendido de ${stats.verified_loads} carga(s) · ${stats.total_packages_learned} paquetes${bedInfo}${comboInfo}`;
         } else {
             badge.style.display = 'none';
         }
@@ -1853,6 +1864,131 @@ window.loadSelectedLoad = loadSelectedLoad;
 window.loadSelectedLoadDirect = loadSelectedLoadDirect;
 window.verifyLoad = verifyLoad;
 window.enableVerifyButton = enableVerifyButton;
+
+// ==================== SUGERENCIAS DE ACOMODO ====================
+
+async function openSuggestions() {
+  if (!state.loadId) {
+    if (state.materials.length === 0) { toast('Agrega materiales primero', 'error'); return; }
+    toast('Guardando materiales...', 'info');
+    const saved = await saveLoad();
+    if (!saved) return;
+  }
+  document.getElementById('modalSugerencias').classList.add('open');
+  await loadSuggestions();
+}
+
+function closeSuggestions() {
+  document.getElementById('modalSugerencias').classList.remove('open');
+}
+
+async function loadSuggestions() {
+  const body = document.getElementById('suggestionsBody');
+  if (!body) return;
+  body.innerHTML = '<div class="sug-loading">🔍 Consultando patrones aprendidos...</div>';
+  try {
+    const data = await api.request(`/api/learning/suggest/${state.loadId}`);
+    const hasResults = (data.suggestions || []).length > 0 || (data.combo_suggestions || []).length > 0;
+
+    if (!hasResults) {
+      // Verificar si hay cargas verificadas pero sin BedPattern (tablas nuevas vacías)
+      const stats = await api.getLearningStats();
+      if (stats.verified_loads > 0 && stats.bed_patterns === 0) {
+        body.innerHTML = '<div class="sug-loading">🔄 Primera vez con datos nuevos — reconstruyendo patrones de zona...</div>';
+        try {
+          const rebuilt = await api.rebuildPatterns();
+          if (rebuilt.success) {
+            // Reintentar sugerencias
+            const data2 = await api.request(`/api/learning/suggest/${state.loadId}`);
+            renderSuggestions(data2);
+            await loadLearningStats();
+            return;
+          }
+        } catch (e2) { /* continuar con mensaje normal */ }
+      }
+    }
+    renderSuggestions(data);
+  } catch (e) {
+    body.innerHTML = `<div class="sug-empty"><div style="font-size:32px;margin-bottom:10px">🧠</div>
+      <p>No hay suficientes cargas verificadas todavía.<br>
+      <small>Verifica más cargas con "✅ Verificar y Aprender".</small></p></div>`;
+  }
+}
+
+function renderSuggestions(data) {
+  const body = document.getElementById('suggestionsBody');
+  if (!body) return;
+  const sugsA  = (data.suggestions || []).filter(s => s.zona === 'A');
+  const sugsB  = (data.suggestions || []).filter(s => s.zona === 'B');
+  const combos = data.combo_suggestions || [];
+  if (sugsA.length === 0 && sugsB.length === 0 && combos.length === 0) {
+    body.innerHTML = `<div class="sug-empty"><div style="font-size:32px;margin-bottom:10px">🧠</div>
+      <p>El sistema aún no tiene suficientes datos para esta carga.<br>
+      <small>Verifica más cargas para que aprenda tus patrones.</small></p></div>`;
+    return;
+  }
+  const posLabels = { CENTER:'🎯 Centrado', SPREAD:'↔️ Distribuido', LEFT:'⬅️ Lado piloto', RIGHT:'➡️ Lado copiloto' };
+  function buildCard(s) {
+    const isA = s.zona === 'A';
+    const tagZone = isA
+      ? '<span class="sug-tag tag-zona-a">📍 Atrás de la concha</span>'
+      : '<span class="sug-tag tag-zona-b">⚙️ Sobre los ejes</span>';
+    const confPct = Math.min(100, s.confianza * 20);
+    return `<div class="sug-card">
+      <div class="sug-icon ${isA ? 'zone-a' : 'zone-b'}">${isA ? '🔵' : '🟡'}</div>
+      <div class="sug-content">
+        <div class="sug-sap">${s.sap_code}</div>
+        <div class="sug-desc" title="${s.description}">${(s.description||'').substring(0,40)}</div>
+        <div class="sug-tags">
+          ${tagZone}
+          <span class="sug-tag tag-cama">Cama ~${s.cama_tipica}</span>
+          <span class="sug-tag tag-pkgs">~${s.pkgs_tipicos} paq/cama</span>
+          <span class="sug-tag tag-pos">${posLabels[s.posicion]||s.posicion}</span>
+        </div>
+      </div>
+      <div class="sug-confidence">${s.confianza}x
+        <div class="confidence-bar"><div class="confidence-fill" style="width:${confPct}%"></div></div>
+      </div>
+    </div>`;
+  }
+  function buildCombo(c) {
+    return `<div class="combo-card"><span style="font-size:18px">🔗</span>
+      <div style="flex:1"><div class="combo-saps">${c.sap_a} + ${c.sap_b}</div>
+      <div class="combo-info">Suelen ir juntos en cama ~${c.cama}</div></div>
+      <span class="combo-badge">${c.veces}×</span></div>`;
+  }
+  body.innerHTML = `
+    <div class="sug-summary">🧠 ${sugsA.length + sugsB.length} sugerencia(s) · ${combos.length} combo(s)</div>
+    <div class="sug-tabs">
+      <button class="sug-tab ${sugsA.length ? 'active-a' : ''}" onclick="showSugTab('a')">🔵 Zona A · Concha (${sugsA.length})</button>
+      <button class="sug-tab" onclick="showSugTab('b')">🟡 Zona B · Ejes (${sugsB.length})</button>
+      ${combos.length ? `<button class="sug-tab" onclick="showSugTab('c')">🔗 Combos (${combos.length})</button>` : ''}
+    </div>
+    <div id="sugPanelA">${sugsA.length ? sugsA.map(buildCard).join('') : '<div class="sug-empty">Sin sugerencias para Zona A</div>'}</div>
+    <div id="sugPanelB" style="display:none">${sugsB.length ? sugsB.map(buildCard).join('') : '<div class="sug-empty">Sin sugerencias para Zona B</div>'}</div>
+    <div id="sugPanelC" style="display:none">${combos.length ? combos.map(buildCombo).join('') : '<div class="sug-empty">Sin combos aprendidos</div>'}</div>`;
+}
+
+function showSugTab(tab) {
+  ['a','b','c'].forEach(t => {
+    const p = document.getElementById('sugPanel' + t.toUpperCase());
+    if (p) p.style.display = t === tab ? 'block' : 'none';
+  });
+  document.querySelectorAll('.sug-tab').forEach((el, i) => {
+    el.className = 'sug-tab';
+    if (['a','b','c'][i] === tab) el.classList.add(tab === 'a' ? 'active-a' : tab === 'b' ? 'active-b' : 'active-c');
+  });
+}
+
+function enableSuggestionsButton(enabled) {
+  const btn = document.getElementById('btnVerSugerencias');
+  if (btn) btn.disabled = !enabled;
+}
+
+window.openSuggestions  = openSuggestions;
+window.closeSuggestions = closeSuggestions;
+window.showSugTab       = showSugTab;
+window.enableSuggestionsButton = enableSuggestionsButton;
 
 // ==================== START ====================
 document.addEventListener('DOMContentLoaded', init);
