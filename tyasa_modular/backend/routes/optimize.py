@@ -125,6 +125,39 @@ def last_overflow_bed(platform: Dict):
 # =========================
 # Regla de altura y calibre por cama
 # =========================
+def bed_priority_compatible(bed: Dict, pkg: Dict) -> bool:
+    """
+    Returns True if a package can join this bed based on priority and deferred status.
+    Rules:
+    - Deferred packages only join beds that already contain deferred packages (or empty beds).
+    - Non-deferred packages with explicit priority only join beds that share the SAME priority.
+    - Non-deferred packages without explicit priority can join any non-deferred bed.
+    """
+    if not bed.get("placements"):
+        return True  # empty bed — anyone can start it
+
+    is_deferred = pkg.get("is_deferred", False)
+    pkg_prio    = pkg.get("almacen_priority", 999)
+
+    for p in bed["placements"]:
+        bed_pkg = p.get("pkg")
+        if not bed_pkg:
+            continue
+        bed_deferred = bed_pkg.get("is_deferred", False)
+        bed_prio     = bed_pkg.get("almacen_priority", 999)
+
+        # Never mix deferred with non-deferred in the same bed
+        if is_deferred != bed_deferred:
+            return False
+
+        # Non-deferred explicit priorities must match to share a bed
+        if not is_deferred and pkg_prio < 999 and bed_prio < 999:
+            if pkg_prio != bed_prio:
+                return False
+
+    return True
+
+
 def bed_height_range_ok(bed: Dict, pkg_h: float, pkg_calibre: float = None) -> bool:
     """
     Verifica si un paquete es compatible con una cama por ALTURA.
@@ -327,11 +360,13 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
         for bed in platform["beds"]:
             if bed.get("is_overflow"):
                 continue
-            
+            # Verificar compatibilidad de prioridad/diferido
+            if not bed_priority_compatible(bed, pkg):
+                continue
             # Verificar compatibilidad de altura y calibre
             if not bed_height_range_ok(bed, pkg_h, pkg_calibre):
                 continue
-            
+
             res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
             if res:
                 x, z, rotated, l_used, w_used = res
@@ -344,10 +379,10 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
                     current_weight = add_placement(placement, bed, pkg, platform, placements_db, load, current_weight)
                     placed = True
                     break
-        
+
         if placed:
             continue
-        
+
         # No cupo en camas existentes -> crear nueva cama
         new_bed = create_new_bed(platform, pkg_h, is_overflow=False)
         if new_bed is None:
@@ -455,11 +490,13 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
         
         # Buscar en camas existentes
         beds_normal = [b for b in platform["beds"] if not b.get("is_overflow")]
-        
+
         for bed in beds_normal:
+            if not bed_priority_compatible(bed, pkg):
+                continue
             if not bed_height_range_ok_in_zone(bed, pkg_h, x_min, x_max, pkg_calibre):
                 continue
-            
+
             res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
             if res:
                 x, z, rotated, l_used, w_used = res
@@ -472,10 +509,10 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
                     current_weight = add_placement(placement, bed, pkg, platform, placements_db, load, current_weight)
                     placed = True
                     break
-        
+
         if placed:
             continue
-        
+
         # No cupo -> crear nueva cama
         new_bed = create_new_bed(platform, pkg_h, is_overflow=False)
         if new_bed is None:
@@ -545,9 +582,11 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
         for bed in platform["beds"]:
             if bed.get("is_overflow"):
                 continue
+            if not bed_priority_compatible(bed, pkg):
+                continue
             if not bed_height_range_ok(bed, pkg_h, pkg_calibre):
                 continue
-            
+
             res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
             if res:
                 x, z, rotated, l_used, w_used = res
@@ -560,10 +599,10 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
                     current_weight = add_placement(placement, bed, pkg, platform, placements_db, load, current_weight)
                     placed = True
                     break
-        
+
         if placed:
             continue
-        
+
         # No cupo -> crear nueva cama
         new_bed = create_new_bed(platform, pkg_h, is_overflow=False)
         if new_bed is None:
@@ -1069,8 +1108,11 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                     # Buscar en camas existentes DE ABAJO HACIA ARRIBA (como los normales)
                     normal_beds = [b for b in platform["beds"] if not b.get("is_overflow", False)]
                     normal_beds_sorted = sorted(normal_beds, key=lambda b: b["number"])  # Más baja primero
-                    
+
                     for bed in normal_beds_sorted:
+                        # Verificar compatibilidad de prioridad/diferido
+                        if not bed_priority_compatible(bed, pkg):
+                            continue
                         # Verificar compatibilidad de altura
                         if not bed_height_range_ok(bed, pkg_h):
                             continue
