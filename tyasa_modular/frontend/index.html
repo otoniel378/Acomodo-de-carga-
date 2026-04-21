@@ -176,6 +176,22 @@
                     </div>
                 </div>
                 
+                <!-- Tolerancia de altura entre materiales en cama -->
+                <div style="background:var(--surface);border-radius:6px;padding:8px;border:1px solid var(--border);margin-top:2px;">
+                    <label style="font-size:10px;color:var(--muted);margin-bottom:6px;display:block;">📐 TOLERANCIA DE ALTURA EN CAMA:</label>
+                    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;">
+                        <button id="btnHeightStrict" class="height-mode-btn active" data-mode="strict" title="±2cm — camas más uniformes, puede haber más camas pequeñas">
+                            Estricto<br><span style="font-size:9px;opacity:0.7;">±2cm</span>
+                        </button>
+                        <button id="btnHeightFlex" class="height-mode-btn" data-mode="flexible" title="±8cm — mejor aprovechamiento, mezcla alturas similares">
+                            Flexible<br><span style="font-size:9px;opacity:0.7;">±8cm</span>
+                        </button>
+                        <button id="btnHeightFree" class="height-mode-btn" data-mode="free" title="Sin límite — máximo aprovechamiento de espacio">
+                            Libre<br><span style="font-size:9px;opacity:0.7;">Sin límite</span>
+                        </button>
+                    </div>
+                </div>
+
                 <button class="btn-suggestions" id="btnVerSugerencias" disabled onclick="openSuggestions()">
                   🧠 Ver Sugerencias de Acomodo
                 </button>

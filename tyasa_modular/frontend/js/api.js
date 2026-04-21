@@ -131,17 +131,18 @@ const api = {
     },
 
     // === OPTIMIZE ===
-    async optimize(loadId, mode = 'opt1', almacenPriorities = [], truckQuantity = 1, gapFloorToBed = 0, gapBetweenBeds = 100, centerPackages = true) {
+    async optimize(loadId, mode = 'opt1', almacenPriorities = [], truckQuantity = 1, gapFloorToBed = 0, gapBetweenBeds = 100, centerPackages = true, heightDiffMode = 'strict') {
         return this.request('/api/optimize', {
             method: 'POST',
-            body: JSON.stringify({ 
-                load_id: loadId, 
+            body: JSON.stringify({
+                load_id: loadId,
                 mode: mode,
                 almacen_priorities: almacenPriorities,
                 truck_quantity: truckQuantity,
                 gap_floor_to_bed: gapFloorToBed,
                 gap_between_beds: gapBetweenBeds,
-                center_packages: centerPackages
+                center_packages: centerPackages,
+                height_diff_mode: heightDiffMode
             })
         });
     },

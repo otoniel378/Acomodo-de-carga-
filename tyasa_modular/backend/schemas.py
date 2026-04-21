@@ -202,6 +202,7 @@ class OptimizeRequest(BaseModel):
     gap_floor_to_bed: int = 0
     gap_between_beds: int = 100
     center_packages: bool = True
+    height_diff_mode: str = "strict"  # "strict"=±20mm, "flexible"=±80mm, "free"=sin límite
 
 class BedStats(BaseModel):
     bed_number: int

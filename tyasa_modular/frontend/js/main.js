@@ -1126,6 +1126,7 @@ async function optimize() {
     const gapBetweenBeds = (parseFloat($('gapBetweenBeds')?.value) || 10) * 10; // cm a mm
     const centerPackages = $('centerPackages')?.checked !== false; // default true
     const usePriorities = $('usePriorities')?.checked !== false; // default true
+    const heightDiffMode = document.querySelector('.height-mode-btn.active')?.dataset?.mode || 'strict';
     
     // Guardar copia local de materiales ANTES de todo
     const materialesLocal = JSON.parse(JSON.stringify(state.materials));
@@ -1168,7 +1169,7 @@ async function optimize() {
         
         // Optimizar con el modo seleccionado, prioridades, cantidad de transportes y configuración de espaciado
         const prioridades = usePriorities ? state.almacenPriorities : [];
-        const res = await api.optimize(state.loadId, optimizeMode, prioridades, truckQuantity, gapFloorToBed, gapBetweenBeds, centerPackages);
+        const res = await api.optimize(state.loadId, optimizeMode, prioridades, truckQuantity, gapFloorToBed, gapBetweenBeds, centerPackages, heightDiffMode);
         console.log('Resultado optimización:', res);
         // Guardar configuración de gaps para usarla en movimientos manuales
         state.gapBetweenBeds = gapBetweenBeds;
@@ -1631,6 +1632,15 @@ function bindEvents() {
     // Botones de modo de optimización
     $('btnMode1')?.addEventListener('click', () => setOptimizeMode('opt1'));
     $('btnMode2')?.addEventListener('click', () => setOptimizeMode('opt2'));
+
+    // Botones de tolerancia de altura
+    document.querySelectorAll('.height-mode-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.height-mode-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+        });
+    });
+
     $('btnConfigPriority')?.addEventListener('click', openPriorityModal);
     $('btnSavePriority')?.addEventListener('click', savePriorities);
     

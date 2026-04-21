@@ -36,6 +36,8 @@ MAX_TOTAL_HEIGHT = 2700             # 2.00 m altura máxima (mm)
 # Variables globales para configuración de la optimización actual
 current_gap_between_beds = DEFAULT_GAP_BETWEEN_BEDS
 current_gap_floor_to_bed = DEFAULT_GAP_FLOOR_TO_BED
+current_max_height_diff = MAX_HEIGHT_DIFF  # se ajusta por request según height_diff_mode
+current_strict_calibre   = True            # False en modo flexible/libre
 
 
 # =========================
@@ -184,8 +186,8 @@ def bed_height_range_ok(bed: Dict, pkg_h: float, pkg_calibre: float = None) -> b
     max_h = max(heights)
     new_min = min(min_h, float(pkg_h))
     new_max = max(max_h, float(pkg_h))
-    
-    return (new_max - new_min) <= MAX_HEIGHT_DIFF
+
+    return (new_max - new_min) <= current_max_height_diff
 
 
 # =========================
@@ -360,9 +362,6 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
         for bed in platform["beds"]:
             if bed.get("is_overflow"):
                 continue
-            # Verificar compatibilidad de prioridad/diferido
-            if not bed_priority_compatible(bed, pkg):
-                continue
             # Verificar compatibilidad de altura y calibre
             if not bed_height_range_ok(bed, pkg_h, pkg_calibre):
                 continue
@@ -431,17 +430,17 @@ def bed_height_range_ok_in_zone(bed: Dict, pkg_h: float, x_min: float, x_max: fl
     if not heights_in_zone:
         return True  # No hay paquetes en esta zona, cualquier altura es compatible
     
-    # Verificar calibre
-    if pkg_calibre is not None and calibres_in_zone:
+    # Verificar calibre solo en modo estricto
+    if current_strict_calibre and pkg_calibre is not None and calibres_in_zone:
         if pkg_calibre not in calibres_in_zone:
             return False
-    
+
     min_h = min(heights_in_zone)
     max_h = max(heights_in_zone)
     new_min = min(min_h, float(pkg_h))
     new_max = max(max_h, float(pkg_h))
-    
-    return (new_max - new_min) <= MAX_HEIGHT_DIFF
+
+    return (new_max - new_min) <= current_max_height_diff
 
 
 # =========================
@@ -492,8 +491,6 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
         beds_normal = [b for b in platform["beds"] if not b.get("is_overflow")]
 
         for bed in beds_normal:
-            if not bed_priority_compatible(bed, pkg):
-                continue
             if not bed_height_range_ok_in_zone(bed, pkg_h, x_min, x_max, pkg_calibre):
                 continue
 
@@ -582,8 +579,6 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
         for bed in platform["beds"]:
             if bed.get("is_overflow"):
                 continue
-            if not bed_priority_compatible(bed, pkg):
-                continue
             if not bed_height_range_ok(bed, pkg_h, pkg_calibre):
                 continue
 
@@ -629,15 +624,21 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
 # =========================
 @router.post("/optimize", response_model=OptimizeResponse)
 def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
-    global current_gap_between_beds, current_gap_floor_to_bed
-    
+    global current_gap_between_beds, current_gap_floor_to_bed, current_max_height_diff, current_strict_calibre
+
     is_opt2 = request.mode == "opt2"
     mode_name = "Optimización 2 (Frontal 6m primero)" if is_opt2 else "Optimización 1 (Superficie completa)"
-    
+
     # Configurar gaps desde el request
     current_gap_between_beds = request.gap_between_beds if request.gap_between_beds is not None else DEFAULT_GAP_BETWEEN_BEDS
     current_gap_floor_to_bed = request.gap_floor_to_bed if request.gap_floor_to_bed is not None else DEFAULT_GAP_FLOOR_TO_BED
     should_center = request.center_packages if request.center_packages is not None else True
+
+    # Tolerancia de altura según modo
+    _height_mode = getattr(request, "height_diff_mode", "strict")
+    current_max_height_diff = {"strict": 20.0, "flexible": 80.0, "free": 9999.0}.get(_height_mode, 20.0)
+    current_strict_calibre   = (_height_mode == "strict")
+    print(f"[CONFIG] Tolerancia altura: {_height_mode} → ±{current_max_height_diff}mm, calibre_estricto={current_strict_calibre}", flush=True)
     
     print(f"\n[CONFIG] Gap suelo->cama1: {current_gap_floor_to_bed}mm, Gap entre camas: {current_gap_between_beds}mm, Centrar: {should_center}", flush=True)
     
@@ -1110,9 +1111,6 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                     normal_beds_sorted = sorted(normal_beds, key=lambda b: b["number"])  # Más baja primero
 
                     for bed in normal_beds_sorted:
-                        # Verificar compatibilidad de prioridad/diferido
-                        if not bed_priority_compatible(bed, pkg):
-                            continue
                         # Verificar compatibilidad de altura
                         if not bed_height_range_ok(bed, pkg_h):
                             continue

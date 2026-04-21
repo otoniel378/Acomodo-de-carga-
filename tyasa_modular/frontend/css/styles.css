@@ -1416,3 +1416,13 @@ td.sobrante {
   font-size: 11px; color: #10b981; margin-bottom: 12px; text-align: center;
 }
 .sug-footer { padding: 12px 18px; border-top: 1px solid var(--border); display: flex; gap: 8px; }
+
+/* Height mode buttons */
+.height-mode-btn {
+  padding: 5px 4px; border: 1px solid var(--border); border-radius: 5px;
+  background: var(--surface); color: var(--muted); cursor: pointer;
+  font-size: 10px; font-weight: 500; text-align: center; line-height: 1.3;
+  transition: all 0.15s; white-space: nowrap;
+}
+.height-mode-btn:hover { border-color: var(--primary); color: var(--text); }
+.height-mode-btn.active { background: var(--primary); border-color: var(--primary); color: #fff; font-weight: 600; }
