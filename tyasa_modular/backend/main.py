@@ -18,7 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 
 # Importar configuración
 try:
@@ -115,6 +115,11 @@ def serve_index():
     if os.path.exists(index_path):
         return FileResponse(index_path, media_type="text/html")
     return {"message": "TYASA API - Frontend no encontrado", "docs": "/docs"}
+
+
+@app.get("/favicon.ico", include_in_schema=False)
+def favicon():
+    return Response(content=b"", status_code=204)
 
 
 @app.get("/api/health")

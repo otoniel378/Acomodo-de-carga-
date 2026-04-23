@@ -283,41 +283,51 @@ def _fill_bed(placed_bed, pending, placements_db, load, platform,
               not_placed_reasons, is_deferred_bed):
     """
     Rellena una cama con todos los paquetes restantes compatibles en altura y espacio.
+    Usa múltiples pasadas: cada vez que se coloca un paquete, sus bordes crean nuevas
+    posiciones candidatas que pueden habilitar paquetes que antes no cabían.
     Modifica 'pending' in-place eliminando los paquetes que coloca.
     Retorna el current_weight actualizado.
     """
     platform_max_payload = platform.get("max_payload", available_payload)
-    placed_indices = []
+    free_mode = (current_max_height_diff >= 9999.0)
 
-    for idx, fill_pkg in enumerate(pending):
-        # No mezclar diferidos con normales y viceversa
-        if bool(fill_pkg.get("is_deferred")) != is_deferred_bed:
-            continue
-        # Límite peso total
-        if current_weight + fill_pkg["weight"] > available_payload:
-            continue
-        # Límite peso plataforma
-        if platform.get("current_weight", 0.0) + fill_pkg["weight"] > platform_max_payload:
-            continue
-        fill_h   = float(fill_pkg["height"])
-        fill_cal = fill_pkg.get("calibre")
-        if not bed_height_range_ok(placed_bed, fill_h, fill_cal):
-            continue
-        fill_res = try_place(placed_bed, fill_pkg, MAX_L, MAX_W, x_min, x_max)
-        if fill_res:
-            fx, fz, frot, fl, fw = fill_res
-            if float(placed_bed["base_y"]) + max(float(placed_bed["max_pkg_height"]), fill_h) <= MAX_TOTAL_HEIGHT:
-                fp = {
-                    "x": fx, "y": float(placed_bed["base_y"]), "z": fz,
-                    "length_used": fl, "width_used": fw, "height_used": fill_h,
-                    "rotated": frot, "bed_number": placed_bed["number"], "pkg": fill_pkg
-                }
-                current_weight = add_placement(fp, placed_bed, fill_pkg, platform,
-                                               placements_db, load, current_weight)
-                placed_indices.append(idx)
+    while True:
+        placed_indices = []
 
-    for idx in reversed(placed_indices):
-        pending.pop(idx)
+        for idx, fill_pkg in enumerate(pending):
+            # No mezclar diferidos con normales y viceversa
+            if bool(fill_pkg.get("is_deferred")) != is_deferred_bed:
+                continue
+            # Límite peso total
+            if current_weight + fill_pkg["weight"] > available_payload:
+                continue
+            # Límite peso plataforma
+            if platform.get("current_weight", 0.0) + fill_pkg["weight"] > platform_max_payload:
+                continue
+            fill_h   = float(fill_pkg["height"])
+            fill_cal = fill_pkg.get("calibre")
+            # En modo libre no hay restricción de altura — solo peso y espacio físico
+            if not free_mode and not bed_height_range_ok(placed_bed, fill_h, fill_cal):
+                continue
+            fill_res = try_place(placed_bed, fill_pkg, MAX_L, MAX_W, x_min, x_max)
+            if fill_res:
+                fx, fz, frot, fl, fw = fill_res
+                if float(placed_bed["base_y"]) + max(float(placed_bed["max_pkg_height"]), fill_h) <= MAX_TOTAL_HEIGHT:
+                    fp = {
+                        "x": fx, "y": float(placed_bed["base_y"]), "z": fz,
+                        "length_used": fl, "width_used": fw, "height_used": fill_h,
+                        "rotated": frot, "bed_number": placed_bed["number"], "pkg": fill_pkg
+                    }
+                    current_weight = add_placement(fp, placed_bed, fill_pkg, platform,
+                                                   placements_db, load, current_weight)
+                    placed_indices.append(idx)
+
+        if not placed_indices:
+            break  # ningún paquete más cabe en esta cama
+
+        for idx in reversed(placed_indices):
+            pending.pop(idx)
+
     return current_weight
 
 
@@ -373,6 +383,7 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
 
     pending = list(packages)   # cola mutable de paquetes a colocar
     remaining = []             # paquetes que no cupieron (peso o altura agotada)
+    free_mode = (current_max_height_diff >= 9999.0)
 
     while pending:
         pkg = pending.pop(0)
@@ -404,7 +415,7 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
         for bed in platform["beds"]:
             if bed.get("is_overflow"):
                 continue
-            if not bed_height_range_ok(bed, pkg_h, pkg_calibre):
+            if not free_mode and not bed_height_range_ok(bed, pkg_h, pkg_calibre):
                 continue
             res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
             if res:
@@ -510,6 +521,7 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
         -p["height"], -(p["length"] * p["width"])
     ))
     remaining = []
+    free_mode = (current_max_height_diff >= 9999.0)
 
     while pending:
         pkg = pending.pop(0)
@@ -537,7 +549,7 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
 
         beds_normal = [b for b in platform["beds"] if not b.get("is_overflow")]
         for bed in beds_normal:
-            if not bed_height_range_ok_in_zone(bed, pkg_h, x_min, x_max, pkg_calibre):
+            if not free_mode and not bed_height_range_ok_in_zone(bed, pkg_h, x_min, x_max, pkg_calibre):
                 continue
             res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
             if res:
@@ -600,6 +612,7 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
 
     pending   = list(packages)
     remaining = []
+    free_mode = (current_max_height_diff >= 9999.0)
 
     while pending:
         pkg = pending.pop(0)
@@ -628,7 +641,7 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
         for bed in platform["beds"]:
             if bed.get("is_overflow"):
                 continue
-            if not bed_height_range_ok(bed, pkg_h, pkg_calibre):
+            if not free_mode and not bed_height_range_ok(bed, pkg_h, pkg_calibre):
                 continue
             res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
             if res:
@@ -1165,9 +1178,10 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                     normal_beds = [b for b in platform["beds"] if not b.get("is_overflow", False)]
                     normal_beds_sorted = sorted(normal_beds, key=lambda b: b["number"])  # Más baja primero
 
+                    free_mode_def = (current_max_height_diff >= 9999.0)
                     for bed in normal_beds_sorted:
                         # Verificar compatibilidad de altura
-                        if not bed_height_range_ok(bed, pkg_h):
+                        if not free_mode_def and not bed_height_range_ok(bed, pkg_h):
                             continue
                         
                         res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
