@@ -245,20 +245,21 @@ def update_product(sap_code: str, product: ProductCreate, db: Session = Depends(
         df_excel.columns = df_excel.columns.str.strip()
         df_excel = df_excel.loc[:, ~df_excel.columns.duplicated()]
         
-        # Buscar el producto por SAP code
-        # Convertir a string para comparación
-        df_excel['Clave Sap'] = df_excel['Clave Sap'].astype(str).str.strip()
-        search_code = str(sap_code).strip()
-        
-        # Intentar búsqueda exacta y numérica
-        mask = df_excel['Clave Sap'] == search_code
-        if not mask.any():
+        # Normalizar SAP codes del Excel igual que load_excel_products (elimina el .0 de floats)
+        def _clean_sap(x):
             try:
-                numeric_code = str(int(float(search_code)))
-                mask = df_excel['Clave Sap'] == numeric_code
+                if pd.isna(x):
+                    return ''
+                num = float(str(x))
+                return str(int(num)) if num == int(num) else str(x).strip()
             except:
-                pass
-        
+                return str(x).strip()
+
+        df_excel['_sap_norm'] = df_excel['Clave Sap'].apply(_clean_sap)
+        search_code = _clean_sap(sap_code)
+
+        mask = df_excel['_sap_norm'] == search_code
+
         if not mask.any():
             raise HTTPException(status_code=404, detail=f"Producto '{sap_code}' no encontrado")
         
@@ -282,7 +283,10 @@ def update_product(sap_code: str, product: ProductCreate, db: Session = Depends(
         df_excel.at[idx, 'Peso por paquete ton'] = product.kg_por_paquete / 1000  # kg a ton
         
         print(f"Actualizando producto SAP={sap_code}: Almacen={almacen}, Calibre={calibre}, Medida={medida}")
-        
+
+        # Eliminar columna auxiliar antes de guardar
+        df_excel.drop(columns=['_sap_norm'], inplace=True)
+
         # Guardar en Excel
         df_excel.to_excel(EXCEL_PRODUCTS_PATH, index=False)
         print(f"✓ Producto '{sap_code}' actualizado en Excel")
