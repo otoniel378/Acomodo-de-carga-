@@ -2032,140 +2032,128 @@ async function swapPackagePositions() {
         toast('Selecciona un solo paquete para intercambiar', 'error');
         return;
     }
-    
+
     const swapSelect = $('swapWithPackage');
     const targetId = parseInt(swapSelect?.value);
-    
+
     if (!targetId) {
         toast('Selecciona un paquete con el cual intercambiar', 'error');
         return;
     }
-    
+
     const pkg1 = selectedPlacements[0];
     const pkg2 = state.placements.find(p => p.id === targetId);
-    
+
     if (!pkg2) {
         toast('Paquete destino no encontrado', 'error');
         return;
     }
-    
-    // Calcular índices visuales antes del cambio
-    const currentBed = pkg1.bed_number;
+
+    const currentBed     = pkg1.bed_number;
     const currentPlatform = pkg1.platform || 1;
-    const allBedPkgs = state.placements.filter(p => 
-        p.bed_number === currentBed && 
+
+    // Índices visuales para el toast
+    const allBedPkgs = state.placements.filter(p =>
+        p.bed_number === currentBed &&
         (p.platform || 1) === currentPlatform &&
         p.placed
-    ).sort((a, b) => {
-        if (a.z !== b.z) return a.z - b.z;
-        return a.x - b.x;
-    });
+    ).sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
     const visualIndex1 = allBedPkgs.findIndex(p => p.id === pkg1.id) + 1;
     const visualIndex2 = allBedPkgs.findIndex(p => p.id === pkg2.id) + 1;
-    
-    // Guardar posiciones y dimensiones originales
-    const pos1 = { x: pkg1.x, z: pkg1.z, length: pkg1.length_used, width: pkg1.width_used };
-    const pos2 = { x: pkg2.x, z: pkg2.z, length: pkg2.length_used, width: pkg2.width_used };
-    
-    // Intercambiar posiciones - ajustar para que no se sobrepongan
-    // El paquete 1 va a la posición del paquete 2, pero ajustado a su tamaño
-    // El paquete 2 va a la posición del paquete 1, pero ajustado a su tamaño
-    
-    // Estrategia: Mantener la misma posición inicial (esquina) pero intercambiar el orden
-    pkg1.x = pos2.x;
-    pkg1.z = pos2.z;
-    pkg2.x = pos1.x;
-    pkg2.z = pos1.z;
-    
-    // Verificar y corregir solapamientos después del intercambio
-    // Reacomodar todos los paquetes de la cama para evitar solapamientos
-    repackBed(currentBed, currentPlatform);
-    
-    // Si hay loadId, guardar en BD todos los cambios
+
+    // Intercambiar el SLOT completo (posición + dimensiones + rotación)
+    // Así cada paquete ocupa exactamente el espacio que tenía el otro, sin solapamientos.
+    const snap1 = { x: pkg1.x, z: pkg1.z, length_used: pkg1.length_used, width_used: pkg1.width_used, rotated: pkg1.rotated };
+    const snap2 = { x: pkg2.x, z: pkg2.z, length_used: pkg2.length_used, width_used: pkg2.width_used, rotated: pkg2.rotated };
+
+    pkg1.x = snap2.x;  pkg1.z = snap2.z;
+    pkg1.length_used = snap2.length_used;  pkg1.width_used = snap2.width_used;
+    pkg1.rotated = snap2.rotated;
+
+    pkg2.x = snap1.x;  pkg2.z = snap1.z;
+    pkg2.length_used = snap1.length_used;  pkg2.width_used = snap1.width_used;
+    pkg2.rotated = snap1.rotated;
+
+    // Guardar solo los dos paquetes modificados (sin repackBed que reordenaría todo)
     if (state.loadId) {
         try {
-            // Guardar las nuevas posiciones de todos los paquetes de la cama
-            const bedPkgs = state.placements.filter(p => 
-                p.bed_number === currentBed && 
-                (p.platform || 1) === currentPlatform &&
-                p.placed
-            );
-            for (const pkg of bedPkgs) {
-                await api.updatePlacement(state.loadId, pkg.id, { x: pkg.x, z: pkg.z });
-            }
-            state.load.status = 'MANUAL';
+            await api.updatePlacement(pkg1.id, { x: pkg1.x, z: pkg1.z, length_used: pkg1.length_used, width_used: pkg1.width_used, rotated: pkg1.rotated });
+            await api.updatePlacement(pkg2.id, { x: pkg2.x, z: pkg2.z, length_used: pkg2.length_used, width_used: pkg2.width_used, rotated: pkg2.rotated });
+            if (state.load) state.load.status = 'MANUAL';
         } catch (e) {
             console.error('Error guardando intercambio:', e);
         }
     }
-    
-    // Actualizar visualizaciones
+
     render3D();
     draw2DWithMultiSelection(state.selectedBed);
     updateSelectionUI();
-    
     toast(`Posiciones intercambiadas: #${visualIndex1} ↔ #${visualIndex2}`, 'success');
 }
 
-// Función para reacomodar los paquetes de una cama sin solapamientos
-function repackBed(bedNum, platform = 1) {
-    const truckWidth = state.truck?.width_mm || 2400;
-    const truckLength = state.truck?.length_mm || 7500;
-    
-    // Obtener paquetes de la cama ordenados por Z (de adelante hacia atrás) y X
-    const bedPkgs = state.placements.filter(p => 
-        p.bed_number === bedNum && 
-        (p.platform || 1) === platform &&
-        p.placed
-    ).sort((a, b) => {
-        if (a.z !== b.z) return a.z - b.z;
-        return a.x - b.x;
-    });
-    
-    if (bedPkgs.length === 0) return;
-    
-    // Algoritmo simple de empaquetado por filas
-    let currentZ = 0;
-    let currentX = 0;
-    let rowHeight = 0; // Máximo ancho (width) en la fila actual
-    
-    bedPkgs.forEach(pkg => {
-        // Si el paquete no cabe en X, pasar a la siguiente fila
-        if (currentX + pkg.length_used > truckLength) {
-            currentX = 0;
-            currentZ += rowHeight;
-            rowHeight = 0;
+// Empaqueta un grupo de paquetes dentro de un rango X [xStart, xEnd]
+function _repackZone(pkgs, xStart, xEnd, truckWidth) {
+    if (pkgs.length === 0) return;
+    let curX = xStart;
+    let curZ = 0;
+    let rowW = 0;
+
+    pkgs.forEach(pkg => {
+        // Nueva fila si no cabe en X
+        if (curX + pkg.length_used > xEnd) {
+            curX = xStart;
+            curZ += rowW;
+            rowW = 0;
         }
-        
-        // Verificar que cabe en Z
-        if (currentZ + pkg.width_used > truckWidth) {
-            // No cabe, dejarlo donde está (o ponerlo al inicio)
-            console.warn(`Paquete ${pkg.id} no cabe en la cama ${bedNum}`);
+        if (curZ + pkg.width_used > truckWidth) {
+            console.warn(`Paquete ${pkg.id} no cabe en zona [${xStart}-${xEnd}]`);
             return;
         }
-        
-        // Asignar posición
-        pkg.x = currentX;
-        pkg.z = currentZ;
-
-        // Avanzar X
-        currentX += pkg.length_used;
-
-        // Actualizar altura de fila
-        if (pkg.width_used > rowHeight) {
-            rowHeight = pkg.width_used;
-        }
+        pkg.x = curX;
+        pkg.z = curZ;
+        curX += pkg.length_used;
+        if (pkg.width_used > rowW) rowW = pkg.width_used;
     });
+}
 
-    // Centrar los paquetes en el eje Z (ancho del transporte)
-    if (bedPkgs.length > 0) {
-        const minZ = Math.min(...bedPkgs.map(p => p.z));
-        const maxZ = Math.max(...bedPkgs.map(p => p.z + p.width_used));
-        const usedWidth = maxZ - minZ;
-        if (usedWidth < truckWidth) {
-            const offset = (truckWidth - usedWidth) / 2 - minZ;
-            bedPkgs.forEach(p => { p.z += offset; });
-        }
+// Función para reacomodar los paquetes de una cama sin solapamientos.
+// Para camiones largos (≥11m) respeta Zona A (0–6025mm) y Zona B (6025mm–largo).
+function repackBed(bedNum, platform = 1) {
+    const truckWidth  = state.truck?.width_mm  || 2400;
+    const truckLength = state.truck?.length_mm || 7500;
+    const FRONTAL = 6025;
+    const hasZones = truckLength >= 11000;
+
+    const bedPkgs = state.placements.filter(p =>
+        p.bed_number === bedNum &&
+        (p.platform || 1) === platform &&
+        p.placed
+    );
+    if (bedPkgs.length === 0) return;
+
+    if (hasZones) {
+        // Separar por zona según bed_zone o posición X actual
+        const zoneA = bedPkgs
+            .filter(p => (p.bed_zone || (p.x < FRONTAL ? 'A' : 'B')) === 'A')
+            .sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
+        const zoneB = bedPkgs
+            .filter(p => (p.bed_zone || (p.x < FRONTAL ? 'A' : 'B')) === 'B')
+            .sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
+
+        _repackZone(zoneA, 0,       FRONTAL,     truckWidth);
+        _repackZone(zoneB, FRONTAL, truckLength, truckWidth);
+    } else {
+        const allPkgs = [...bedPkgs].sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
+        _repackZone(allPkgs, 0, truckLength, truckWidth);
+    }
+
+    // Centrar todo el grupo en Z
+    const minZ = Math.min(...bedPkgs.map(p => p.z));
+    const maxZ = Math.max(...bedPkgs.map(p => p.z + p.width_used));
+    const usedW = maxZ - minZ;
+    if (usedW < truckWidth) {
+        const off = (truckWidth - usedW) / 2 - minZ;
+        bedPkgs.forEach(p => { p.z += off; });
     }
 }
 
