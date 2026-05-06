@@ -2009,21 +2009,23 @@ async function rotateYPlacement() {
 
 function setManualMode(enabled) {
     state.manualMode = enabled;
-    
+
     const canvas2dWrap = document.querySelector('.canvas-2d-wrap');
     const editPanel = $('manualEditPanel');
-    
-    if (canvas2dWrap) {
-        canvas2dWrap.classList.toggle('manual-mode', enabled);
+
+    if (canvas2dWrap) canvas2dWrap.classList.toggle('manual-mode', enabled);
+    if (editPanel)    editPanel.style.display = enabled ? 'block' : 'none';
+
+    // Mostrar botones Zona A / Zona B solo para camiones largos (≥ 11 000 mm)
+    const zoneDiv = $('zoneRepackBtns');
+    if (zoneDiv && enabled) {
+        const truckLen = state.truck?.length_mm || 0;
+        zoneDiv.style.display = truckLen >= 11000 ? 'grid' : 'none';
+    } else if (zoneDiv) {
+        zoneDiv.style.display = 'none';
     }
-    
-    if (editPanel) {
-        editPanel.style.display = enabled ? 'block' : 'none';
-    }
-    
-    if (!enabled) {
-        deselectPlacement();
-    }
+
+    if (!enabled) deselectPlacement();
 }
 
 // Intercambiar posiciones entre dos paquetes
@@ -2091,7 +2093,7 @@ async function swapPackagePositions() {
     toast(`Posiciones intercambiadas: #${visualIndex1} ↔ #${visualIndex2}`, 'success');
 }
 
-// Empaqueta un grupo de paquetes dentro de un rango X [xStart, xEnd]
+// Empaqueta un grupo de paquetes dentro de un rango X [xStart, xEnd] y los centra en Z
 function _repackZone(pkgs, xStart, xEnd, truckWidth) {
     if (pkgs.length === 0) return;
     let curX = xStart;
@@ -2099,7 +2101,6 @@ function _repackZone(pkgs, xStart, xEnd, truckWidth) {
     let rowW = 0;
 
     pkgs.forEach(pkg => {
-        // Nueva fila si no cabe en X
         if (curX + pkg.length_used > xEnd) {
             curX = xStart;
             curZ += rowW;
@@ -2114,48 +2115,81 @@ function _repackZone(pkgs, xStart, xEnd, truckWidth) {
         curX += pkg.length_used;
         if (pkg.width_used > rowW) rowW = pkg.width_used;
     });
+
+    // Centrar en Z
+    if (pkgs.length > 0) {
+        const minZ = Math.min(...pkgs.map(p => p.z));
+        const maxZ = Math.max(...pkgs.map(p => p.z + p.width_used));
+        const usedW = maxZ - minZ;
+        if (usedW < truckWidth) {
+            const off = (truckWidth - usedW) / 2 - minZ;
+            pkgs.forEach(p => { p.z += off; });
+        }
+    }
 }
 
-// Función para reacomodar los paquetes de una cama sin solapamientos.
-// Para camiones largos (≥11m) respeta Zona A (0–6025mm) y Zona B (6025mm–largo).
+// Reacomodar toda la cama: empaqueta todos los paquetes juntos y los centra en Z.
 function repackBed(bedNum, platform = 1) {
     const truckWidth  = state.truck?.width_mm  || 2400;
     const truckLength = state.truck?.length_mm || 7500;
-    const FRONTAL = 6025;
-    const hasZones = truckLength >= 11000;
 
     const bedPkgs = state.placements.filter(p =>
         p.bed_number === bedNum &&
         (p.platform || 1) === platform &&
         p.placed
-    );
+    ).sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
+
     if (bedPkgs.length === 0) return;
+    _repackZone(bedPkgs, 0, truckLength, truckWidth);
+}
 
-    if (hasZones) {
-        // Separar por zona según bed_zone o posición X actual
-        const zoneA = bedPkgs
-            .filter(p => (p.bed_zone || (p.x < FRONTAL ? 'A' : 'B')) === 'A')
-            .sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
-        const zoneB = bedPkgs
-            .filter(p => (p.bed_zone || (p.x < FRONTAL ? 'A' : 'B')) === 'B')
-            .sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
+// Reacomodar solo Zona A (0–6025mm) de la cama: mueve los paquetes de Zona A
+// al inicio del camión sin tocar los de Zona B.
+async function repackZoneAndSave(zone) {
+    const bedNum  = state.selectedBed;
+    const platform = state.selectedPlatform || 1;
+    if (!bedNum) { toast('Selecciona una cama primero', 'error'); return; }
 
-        _repackZone(zoneA, 0,       FRONTAL,     truckWidth);
-        _repackZone(zoneB, FRONTAL, truckLength, truckWidth);
-    } else {
-        const allPkgs = [...bedPkgs].sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
-        _repackZone(allPkgs, 0, truckLength, truckWidth);
+    const truckWidth  = state.truck?.width_mm  || 2400;
+    const truckLength = state.truck?.length_mm || 7500;
+    const FRONTAL = 6025;
+
+    const isZoneA = zone === 'A';
+    const xStart  = isZoneA ? 0 : FRONTAL;
+    const xEnd    = isZoneA ? FRONTAL : truckLength;
+
+    // Paquetes de esa zona en esta cama
+    const zonePkgs = state.placements.filter(p =>
+        p.bed_number === bedNum &&
+        (p.platform || 1) === platform &&
+        p.placed &&
+        (p.bed_zone || (p.x < FRONTAL ? 'A' : 'B')) === zone
+    ).sort((a, b) => a.z !== b.z ? a.z - b.z : a.x - b.x);
+
+    if (zonePkgs.length === 0) {
+        toast(`No hay paquetes en Zona ${zone} de esta cama`, 'info');
+        return;
     }
 
-    // Centrar todo el grupo en Z
-    const minZ = Math.min(...bedPkgs.map(p => p.z));
-    const maxZ = Math.max(...bedPkgs.map(p => p.z + p.width_used));
-    const usedW = maxZ - minZ;
-    if (usedW < truckWidth) {
-        const off = (truckWidth - usedW) / 2 - minZ;
-        bedPkgs.forEach(p => { p.z += off; });
+    _repackZone(zonePkgs, xStart, xEnd, truckWidth);
+
+    try {
+        for (const p of zonePkgs) {
+            await api.updatePlacement(p.id, { x: p.x, z: p.z });
+        }
+        if (state.load) state.load.status = 'MANUAL';
+        recalculateTotalHeight();
+        render3D();
+        draw2DWithMultiSelection(bedNum);
+        renderBedsTabs();
+        renderBedsDistribution();
+        renderBedMaterialsList(bedNum, platform);
+        toast(`Zona ${zone} reacomodada (${zonePkgs.length} paquetes)`, 'success');
+    } catch (e) {
+        toast('Error al reacomodar zona: ' + e.message, 'error');
     }
 }
+window.repackZoneAndSave = repackZoneAndSave;
 
 // Reacomodar y guardar — ordena los paquetes de la cama actual sin encimarse y persiste
 async function repackAndSave() {

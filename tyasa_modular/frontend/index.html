@@ -375,7 +375,11 @@
             <div class="card" id="manualEditPanel" style="display:none;">
                 <div class="card-title">✏️ Editar Paquete</div>
                 <!-- Botón de reacomodo siempre visible en modo manual -->
-                <button class="btn btn-secondary btn-sm w-full mb-2" id="btnRepackBed" onclick="repackAndSave()" title="Acomoda los paquetes de la cama sin encimarse">⬛ Reacomodar cama actual</button>
+                <button class="btn btn-secondary btn-sm w-full mb-1" id="btnRepackBed" onclick="repackAndSave()" title="Acomoda TODOS los paquetes de la cama, centrado">⬛ Reacomodar cama actual</button>
+                <div id="zoneRepackBtns" style="display:none;grid-template-columns:1fr 1fr;gap:4px;margin-bottom:8px;">
+                    <button class="btn btn-sm" onclick="repackZoneAndSave('A')" title="Acomoda solo los paquetes de Zona A (delantera 0–6m)" style="background:#1d4ed8;color:#fff;font-size:11px;padding:5px 4px;">🔵 Zona A</button>
+                    <button class="btn btn-sm" onclick="repackZoneAndSave('B')" title="Acomoda solo los paquetes de Zona B (trasera 6m–12m)" style="background:#b45309;color:#fff;font-size:11px;padding:5px 4px;">🟡 Zona B</button>
+                </div>
                 <div id="selectedPkgInfo" class="selected-pkg-info mb-2">
                     Selecciona paquetes en la vista 2D<br><small>Ctrl+click para selección múltiple<br>Arrastra para mover</small>
                 </div>
