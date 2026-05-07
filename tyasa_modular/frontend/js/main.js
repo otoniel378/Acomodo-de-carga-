@@ -1004,6 +1004,26 @@ const MAT_TYPE_COLORS = {
     'LARGOS': '#f59e0b', 'SBQ': '#8b5cf6', 'PLANOS': '#06b6d4', 'GALV': '#10b981'
 };
 
+// Grupos del modal de prioridades (accesibles para la función de ordenar por calibre)
+let _priorityGroups = [];
+
+// Ordena los selects de prioridad según calibre y actualiza su valor
+function applyCalibresort(dir) {
+    const sorted = [..._priorityGroups].sort((a, b) =>
+        dir === 'asc' ? (a.calibre || 0) - (b.calibre || 0) : (b.calibre || 0) - (a.calibre || 0)
+    );
+    sorted.forEach((g, i) => {
+        const sel = document.querySelector(`.priority-select[data-sap="${g.sap_code}"][data-almacen="${g.almacen}"]`);
+        if (sel) sel.value = i + 1;
+    });
+    // Resaltar botón activo
+    document.querySelectorAll('.cal-sort-btn').forEach(b => {
+        b.style.background = b.dataset.dir === dir ? 'var(--primary)' : 'var(--surface)';
+        b.style.color      = b.dataset.dir === dir ? '#fff' : 'var(--text-primary)';
+    });
+}
+window.applyCalibresort = applyCalibresort;
+
 // Abrir modal de prioridades (por SAP + almacén)
 function openPriorityModal() {
     if (state.materials.length === 0) {
@@ -1042,6 +1062,8 @@ function openPriorityModal() {
         return a.description.localeCompare(b.description);
     });
 
+    _priorityGroups = groups;  // guardar para applyCalibresort
+
     const container = $('almacenPriorityList');
     container.innerHTML = '';
     const numGroups = groups.length;
@@ -1050,6 +1072,24 @@ function openPriorityModal() {
     note.style.cssText = 'font-size:11px;color:var(--muted);margin-bottom:8px;padding:6px 8px;background:var(--surface);border-radius:4px;';
     note.textContent = 'Forzar = ese material se coloca SIEMPRE primero. Prioridad 1° = primero. Sin asignar = el algoritmo decide con lo aprendido.';
     container.appendChild(note);
+
+    // Barra: ordenar por calibre
+    const sortBar = document.createElement('div');
+    sortBar.style.cssText = 'display:flex;align-items:center;gap:6px;margin-bottom:10px;padding:6px 8px;background:var(--surface);border:1px solid var(--border);border-radius:6px;';
+    sortBar.innerHTML = `
+        <span style="font-size:11px;color:var(--muted);flex:1;">Ordenar por calibre:</span>
+        <button class="cal-sort-btn" data-dir="asc"
+            onclick="applyCalibresort('asc')"
+            style="padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:11px;cursor:pointer;">
+            Cal. ↑ ASC
+        </button>
+        <button class="cal-sort-btn" data-dir="desc"
+            onclick="applyCalibresort('desc')"
+            style="padding:3px 10px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text-primary);font-size:11px;cursor:pointer;">
+            Cal. ↓ DESC
+        </button>
+    `;
+    container.appendChild(sortBar);
 
     groups.forEach((group, idx) => {
         const saved = state.almacenPriorities.find(p => p.sap_code === group.sap_code && p.almacen === group.almacen);
