@@ -703,7 +703,17 @@ function addMaterial() {
     state.placements = [];
 
     $('tons').value = '';
-    $('pesoPaquete').value = '';
+    // Si Auto BD está ON: restaurar el valor de la BD; si está OFF: limpiar para que el usuario vuelva a escribir
+    const _chkAuto = $('chkAutoPeso');
+    const _pesoInp = $('pesoPaquete');
+    if (_pesoInp) {
+        if (_chkAuto?.checked && state.product) {
+            const pt = state.product.peso_ton || (state.product.kg_por_paquete / 1000);
+            _pesoInp.value = (pt && pt > 0) ? pt.toFixed(3) : '';
+        } else {
+            _pesoInp.value = '';
+        }
+    }
     if ($('chkDiferido')) $('chkDiferido').checked = false;  // Limpiar checkbox
     const preview = $('calcPreview');
     if (preview) preview.style.display = 'none';
@@ -1585,6 +1595,30 @@ function bindEvents() {
     $('tons')?.addEventListener('input', updateCalcPreview);
     $('pesoPaquete')?.addEventListener('input', updateCalcPreview);
     $('pesoPaquete')?.addEventListener('keypress', e => { if (e.key === 'Enter') $('tons')?.focus(); });
+
+    // Toggle Auto BD para peso/paquete
+    $('chkAutoPeso')?.addEventListener('change', () => {
+        const chk  = $('chkAutoPeso');
+        const inp  = $('pesoPaquete');
+        if (!inp) return;
+        if (chk?.checked) {
+            // Activar auto: rellenar desde BD si hay producto cargado
+            inp.readOnly = true;
+            inp.style.opacity = '0.65';
+            inp.style.cursor  = 'not-allowed';
+            if (state.product) {
+                const pt = state.product.peso_ton || (state.product.kg_por_paquete / 1000);
+                inp.value = (pt && pt > 0) ? pt.toFixed(3) : '';
+            }
+        } else {
+            // Desactivar auto: campo editable, limpiar para que el usuario escriba
+            inp.readOnly = false;
+            inp.style.opacity = '';
+            inp.style.cursor  = '';
+            inp.value = '';
+            inp.focus();
+        }
+    });
     
     $('btnAddAdit')?.addEventListener('click', addAditamento);
     

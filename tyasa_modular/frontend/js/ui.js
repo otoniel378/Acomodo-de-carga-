@@ -119,14 +119,22 @@ function renderProductInfo() {
     if (pkgAncho) pkgAncho.value = anchoCm.toFixed(1);
     if (pkgAlto) pkgAlto.value = altoCm.toFixed(1);
     
-    // Pre-llenar peso por paquete si está disponible en el Excel (como sugerencia)
-    const pesoInput = $('pesoPaquete');
+    // Pre-llenar peso por paquete según el toggle Auto BD
+    const pesoInput   = $('pesoPaquete');
+    const chkAutoPeso = $('chkAutoPeso');
     if (pesoInput) {
-        const pesoTon = p.peso_ton || (p.kg_por_paquete / 1000);
-        if (pesoTon && pesoTon > 0) {
-            pesoInput.value = pesoTon.toFixed(3);
+        const autoOn = chkAutoPeso?.checked !== false;
+        if (autoOn) {
+            const pesoTon = p.peso_ton || (p.kg_por_paquete / 1000);
+            pesoInput.value    = (pesoTon && pesoTon > 0) ? pesoTon.toFixed(3) : '';
+            pesoInput.readOnly = true;
+            pesoInput.style.opacity = '0.65';
+            pesoInput.style.cursor  = 'not-allowed';
         } else {
-            pesoInput.value = '';
+            pesoInput.readOnly = false;
+            pesoInput.style.opacity = '';
+            pesoInput.style.cursor  = '';
+            // No tocar el valor: el usuario lo ingresa manualmente
         }
     }
     
