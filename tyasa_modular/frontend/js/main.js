@@ -1073,7 +1073,7 @@ function openPriorityModal() {
         div.innerHTML = `
             <span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};flex-shrink:0;"></span>
             <div style="flex:1;min-width:0;">
-                <div style="font-size:12px;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${group.sap_code} - ${group.description.substring(0,28)}</div>
+                <div style="font-size:12px;font-weight:600;word-break:break-word;line-height:1.3;">${group.sap_code} - ${group.description}</div>
                 <div style="font-size:10px;color:var(--muted);">${almacenTag} ${group.count} paq · Cal.${group.calibre || '—'}</div>
             </div>
             <label style="font-size:11px;color:#22c55e;white-space:nowrap;cursor:pointer;display:flex;align-items:center;gap:3px;">
