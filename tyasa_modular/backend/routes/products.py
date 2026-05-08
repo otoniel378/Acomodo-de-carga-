@@ -10,13 +10,74 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database import get_db, Product
 from schemas import ProductCreate, ProductResponse
-from config import EXCEL_PRODUCTS_PATH
+from config import EXCEL_PRODUCTS_PATH, IS_PRODUCTION
 
 router = APIRouter(prefix="/api/products", tags=["products"])
 
 # Cache del Excel para no leerlo cada vez
 _excel_cache = None
 _excel_mtime = 0
+
+
+def _db_row_to_product(p: Product) -> dict:
+    """Convertir fila de DB a formato de respuesta"""
+    kg = float(p.kg_por_paquete or 0)
+    alto = float(p.alto_mm or 0)
+    ancho = float(p.ancho_mm or 0)
+    largo = float(p.largo_mm or 0)
+    return {
+        "id": p.id,
+        "sap_code": p.sap_code,
+        "description": p.description,
+        "material_type": p.material_type,
+        "almacen": p.almacen or "",
+        "medida": getattr(p, 'medida', '') or "",
+        "calibre": float(getattr(p, 'calibre', 0) or 0),
+        "largo_mm": largo,
+        "ancho_mm": ancho,
+        "alto_mm": alto,
+        "largo_cm": largo / 10,
+        "ancho_cm": ancho / 10,
+        "alto_cm": alto / 10,
+        "kg_por_paquete": kg,
+        "peso_ton": kg / 1000,
+        "peso_pieza_kg": float(p.peso_pieza_kg or 0),
+        "piezas_por_paquete": int(p.piezas_por_paquete or 1),
+    }
+
+
+def sync_excel_to_db(db: Session):
+    """Importa todos los productos del Excel a la BD (solo si está vacía)"""
+    if db.query(Product).count() > 0:
+        return
+    df = load_excel_products()
+    if df.empty:
+        print("⚠ No se pudo sincronizar Excel → DB: Excel vacío")
+        return
+    count = 0
+    for _, row in df.iterrows():
+        sap = str(row.get('sap_code', '')).strip()
+        if not sap:
+            continue
+        exists = db.query(Product).filter(Product.sap_code == sap).first()
+        if not exists:
+            db.add(Product(
+                sap_code=sap,
+                description=str(row.get('description', '')),
+                material_type=str(row.get('material_type', '')),
+                almacen=str(row.get('almacen', '')),
+                medida=str(row.get('medida', '')),
+                calibre=float(row.get('calibre', 0) or 0),
+                largo_mm=int(row.get('largo_mm', 0) or 0),
+                ancho_mm=int(row.get('ancho_mm', 0) or 0),
+                alto_mm=int(row.get('alto_mm', 0) or 0),
+                kg_por_paquete=float(row.get('kg_por_paquete', 0) or 0),
+                peso_pieza_kg=0,
+                piezas_por_paquete=1,
+            ))
+            count += 1
+    db.commit()
+    print(f"✓ {count} productos sincronizados de Excel → DB")
 
 def load_excel_products():
     """Cargar productos desde el archivo Excel"""
@@ -158,18 +219,28 @@ def get_products(
     search: Optional[str] = None,
     db: Session = Depends(get_db)
 ):
-    """Obtener productos desde Excel, opcionalmente filtrados"""
+    """Obtener productos, opcionalmente filtrados"""
+    if IS_PRODUCTION:
+        q = db.query(Product)
+        if material_type:
+            q = q.filter(Product.material_type == material_type.upper())
+        if search:
+            s = f"%{search.lower()}%"
+            from sqlalchemy import or_, func
+            q = q.filter(or_(
+                func.lower(Product.sap_code).like(s),
+                func.lower(Product.description).like(s)
+            ))
+        return [_db_row_to_product(p) for p in q.limit(100).all()]
+
     df = load_excel_products()
-    
     if df.empty:
         q = db.query(Product)
         if material_type:
             q = q.filter(Product.material_type == material_type)
         return q.all()
-    
     if material_type:
         df = df[df['material_type'].str.upper() == material_type.upper()]
-    
     if search:
         search_lower = search.lower()
         mask = (
@@ -177,48 +248,45 @@ def get_products(
             df['description'].str.lower().str.contains(search_lower, na=False)
         )
         df = df[mask]
-    
-    products = []
-    for _, row in df.iterrows():
-        products.append(excel_row_to_product(row))
-    
-    return products[:100]
+    return [excel_row_to_product(row) for _, row in df.iterrows()][:100]
 
 
 @router.get("/search/{sap_code}")
 def search_product(sap_code: str, db: Session = Depends(get_db)):
     """Buscar producto por código SAP"""
+    if IS_PRODUCTION:
+        try:
+            norm = str(int(float(sap_code.strip())))
+        except Exception:
+            norm = sap_code.strip()
+        product = db.query(Product).filter(Product.sap_code == norm).first()
+        if not product:
+            product = db.query(Product).filter(Product.sap_code.contains(sap_code.strip())).first()
+        if not product:
+            raise HTTPException(status_code=404, detail=f"Producto '{sap_code}' no encontrado")
+        result = _db_row_to_product(product)
+        print(f"✓ Producto encontrado: SAP={result['sap_code']}, Calibre={result['calibre']}")
+        return result
+
     df = load_excel_products()
-    
     if df.empty:
         product = db.query(Product).filter(Product.sap_code.contains(sap_code)).first()
         if not product:
             raise HTTPException(status_code=404, detail="Producto no encontrado")
         return product
-    
-    # Normalizar el código de búsqueda (quitar espacios y ceros iniciales si es numérico)
     search_code = sap_code.strip()
-    
-    # Búsqueda exacta primero
     matches = df[df['sap_code'] == search_code]
-    
     if matches.empty:
-        # Intentar búsqueda numérica si es un número
         try:
             numeric_code = str(int(float(search_code)))
             matches = df[df['sap_code'] == numeric_code]
-        except:
+        except Exception:
             pass
-    
     if matches.empty:
-        # Búsqueda parcial (contiene)
         mask = df['sap_code'].str.contains(search_code, na=False, regex=False)
         matches = df[mask]
-    
     if matches.empty:
         raise HTTPException(status_code=404, detail=f"Producto '{sap_code}' no encontrado")
-    
-    # Tomar el primer resultado
     row = matches.iloc[0]
     result = excel_row_to_product(row)
     print(f"✓ Producto encontrado: SAP={result['sap_code']}, Calibre={result['calibre']}, Almacen={result['almacen']}")
@@ -233,7 +301,28 @@ def get_product(sap_code: str, db: Session = Depends(get_db)):
 
 @router.put("/{sap_code}")
 def update_product(sap_code: str, product: ProductCreate, db: Session = Depends(get_db)):
-    """Actualizar producto existente en el Excel"""
+    """Actualizar producto existente"""
+    if IS_PRODUCTION:
+        try:
+            norm = str(int(float(sap_code.strip())))
+        except Exception:
+            norm = sap_code.strip()
+        existing = db.query(Product).filter(Product.sap_code == norm).first()
+        if not existing:
+            raise HTTPException(status_code=404, detail=f"Producto '{sap_code}' no encontrado")
+        existing.description = product.description
+        existing.material_type = product.material_type
+        existing.almacen = product.almacen or ""
+        existing.medida = getattr(product, 'medida', '') or ""
+        existing.calibre = getattr(product, 'calibre', 0) or 0
+        existing.alto_mm = int(product.alto_mm or 0)
+        existing.ancho_mm = int(product.ancho_mm or 0)
+        existing.largo_mm = int(product.largo_mm or 0)
+        existing.kg_por_paquete = float(product.kg_por_paquete or 0)
+        db.commit()
+        print(f"✓ Producto '{sap_code}' actualizado en DB")
+        return {"message": "Producto actualizado", "sap_code": sap_code}
+
     global _excel_cache, _excel_mtime
     
     try:
@@ -316,7 +405,31 @@ def update_product(sap_code: str, product: ProductCreate, db: Session = Depends(
 
 @router.post("")
 def create_product(product: ProductCreate, db: Session = Depends(get_db)):
-    """Crear nuevo producto - guarda en el Excel"""
+    """Crear nuevo producto"""
+    if IS_PRODUCTION:
+        existing = db.query(Product).filter(Product.sap_code == str(product.sap_code)).first()
+        if existing:
+            raise HTTPException(status_code=400, detail="Código SAP ya existe")
+        new_p = Product(
+            sap_code=str(product.sap_code),
+            description=product.description,
+            material_type=product.material_type,
+            almacen=product.almacen or "",
+            medida=getattr(product, 'medida', '') or "",
+            calibre=getattr(product, 'calibre', 0) or 0,
+            largo_mm=int(product.largo_mm or 0),
+            ancho_mm=int(product.ancho_mm or 0),
+            alto_mm=int(product.alto_mm or 0),
+            kg_por_paquete=float(product.kg_por_paquete or 0),
+            peso_pieza_kg=0,
+            piezas_por_paquete=1,
+        )
+        db.add(new_p)
+        db.commit()
+        db.refresh(new_p)
+        print(f"✓ Producto '{product.sap_code}' creado en DB")
+        return _db_row_to_product(new_p)
+
     global _excel_cache, _excel_mtime
     
     # Verificar si ya existe en el Excel

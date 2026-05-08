@@ -4,10 +4,13 @@ from sqlalchemy.orm import sessionmaker, relationship, declarative_base
 from datetime import datetime, timezone
 import os
 
-from config import DATABASE_URL, DATABASE_FILE, DEFAULT_TRUCKS, DEFAULT_PRODUCTS
+from config import DATABASE_URL, DATABASE_FILE, IS_PRODUCTION, DEFAULT_TRUCKS, DEFAULT_PRODUCTS
 
-# Crear engine
-engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
+# Crear engine — SQLite necesita check_same_thread=False, PostgreSQL no
+if IS_PRODUCTION:
+    engine = create_engine(DATABASE_URL)
+else:
+    engine = create_engine(DATABASE_URL, connect_args={"check_same_thread": False})
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 Base = declarative_base()
 
@@ -39,6 +42,8 @@ class Product(Base):
     sap_code = Column(String, unique=True, nullable=False)
     description = Column(String, nullable=False)
     almacen = Column(String, default="")
+    medida = Column(String, default="")
+    calibre = Column(Float, default=0)
     # Dimensiones del paquete
     largo_mm = Column(Integer, default=0)
     ancho_mm = Column(Integer, default=0)
@@ -238,8 +243,38 @@ def get_db():
         db.close()
 
 
+def _seed_defaults():
+    """Inserta camiones y productos por defecto si no existen"""
+    db = SessionLocal()
+    try:
+        if db.query(TruckType).count() == 0:
+            for t in DEFAULT_TRUCKS:
+                db.add(TruckType(**t))
+            db.commit()
+            print(f"✓ {len(DEFAULT_TRUCKS)} camiones insertados")
+        else:
+            for t in DEFAULT_TRUCKS:
+                existing = db.query(TruckType).filter(TruckType.id == t['id']).first()
+                if existing and existing.max_payload_kg != t['max_payload_kg']:
+                    existing.max_payload_kg = t['max_payload_kg']
+            db.commit()
+        if db.query(Product).count() == 0:
+            for p in DEFAULT_PRODUCTS:
+                db.add(Product(**p))
+            db.commit()
+            print(f"✓ {len(DEFAULT_PRODUCTS)} productos por defecto insertados")
+    finally:
+        db.close()
+
+
 def init_database():
     """Inicializa la BD y datos por defecto"""
+    if IS_PRODUCTION:
+        Base.metadata.create_all(bind=engine)
+        print("✓ Tablas creadas/verificadas (PostgreSQL)")
+        _seed_defaults()
+        return
+
     # Verificar si BD existe y tiene esquema correcto
     if os.path.exists(DATABASE_FILE):
         try:
@@ -287,22 +322,4 @@ def init_database():
     # Crear tablas
     Base.metadata.create_all(bind=engine)
     print("✓ Tablas creadas/verificadas")
-    
-    # Insertar datos por defecto
-    db = SessionLocal()
-    try:
-        # Camiones
-        if db.query(TruckType).count() == 0:
-            for t in DEFAULT_TRUCKS:
-                db.add(TruckType(**t))
-            db.commit()
-            print(f"✓ {len(DEFAULT_TRUCKS)} camiones insertados")
-        
-        # Productos
-        if db.query(Product).count() == 0:
-            for p in DEFAULT_PRODUCTS:
-                db.add(Product(**p))
-            db.commit()
-            print(f"✓ {len(DEFAULT_PRODUCTS)} productos insertados")
-    finally:
-        db.close()
+    _seed_defaults()

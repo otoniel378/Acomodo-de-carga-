@@ -1,0 +1,12 @@
+services:
+  - type: web
+    name: tyasa-app
+    env: python
+    region: oregon
+    plan: free
+    rootDir: tyasa_modular/backend
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: DATABASE_URL
+        sync: false

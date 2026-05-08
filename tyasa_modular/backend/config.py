@@ -12,14 +12,21 @@ else:
     BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     INTERNAL_DIR = BASE_DIR
 
-# Base de datos - en el directorio del ejecutable (persistente)
-DATABASE_FILE = os.path.join(BASE_DIR, "tyasa.db")
-DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
-
-# También revisar variable de entorno (usada por server.py)
-if os.environ.get('TYASA_DB_PATH'):
-    DATABASE_FILE = os.environ.get('TYASA_DB_PATH')
+# Base de datos - soporta SQLite local o PostgreSQL (Supabase/Render)
+_pg_url = os.environ.get('DATABASE_URL', '')
+if _pg_url:
+    # Render/Supabase usa postgres:// pero SQLAlchemy requiere postgresql://
+    if _pg_url.startswith('postgres://'):
+        _pg_url = _pg_url.replace('postgres://', 'postgresql://', 1)
+    DATABASE_URL = _pg_url
+    DATABASE_FILE = ''
+    IS_PRODUCTION = True
+else:
+    DATABASE_FILE = os.path.join(BASE_DIR, "tyasa.db")
+    if os.environ.get('TYASA_DB_PATH'):
+        DATABASE_FILE = os.environ.get('TYASA_DB_PATH')
     DATABASE_URL = f"sqlite:///{DATABASE_FILE}"
+    IS_PRODUCTION = False
 
 # Archivo Excel de productos
 EXCEL_PRODUCTS_PATH = os.path.join(BASE_DIR, "FORMADOS PERFILES TUBULARES.xlsx")
@@ -28,8 +35,8 @@ EXCEL_PRODUCTS_PATH = os.path.join(BASE_DIR, "FORMADOS PERFILES TUBULARES.xlsx")
 LOGO_PATH = os.path.join(BASE_DIR, "imagenes", "logotyasacar.png")
 
 # Servidor
-HOST = "127.0.0.1"
-PORT = 8000
+HOST = "0.0.0.0" if IS_PRODUCTION else "127.0.0.1"
+PORT = int(os.environ.get('PORT', 8000))
 
 # CORS - Orígenes permitidos
 CORS_ORIGINS = [

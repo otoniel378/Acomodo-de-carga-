@@ -138,6 +138,19 @@ def startup():
             init_database()
         except Exception as e:
             print(f"⚠ Error inicializando BD: {e}")
+    # En producción: sincronizar Excel → DB si la tabla products está vacía
+    try:
+        from config import IS_PRODUCTION
+        if IS_PRODUCTION:
+            from routes.products import sync_excel_to_db
+            from database import SessionLocal
+            db = SessionLocal()
+            try:
+                sync_excel_to_db(db)
+            finally:
+                db.close()
+    except Exception as e:
+        print(f"⚠ Error sincronizando productos: {e}")
     print("=" * 50)
     print(f"✓ App: http://{HOST}:{PORT}")
     print(f"✓ Docs: http://{HOST}:{PORT}/docs")
