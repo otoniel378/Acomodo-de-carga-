@@ -122,7 +122,7 @@ def favicon():
     return Response(content=b"", status_code=204)
 
 
-@app.get("/api/health")
+@app.api_route("/api/health", methods=["GET", "HEAD"])
 def health():
     return {"status": "ok", "version": "2.1.0"}
 
