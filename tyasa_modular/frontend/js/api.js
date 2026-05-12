@@ -1,5 +1,8 @@
 // api.js - Conexión con el backend
-const API_URL = 'http://127.0.0.1:8000';
+// En producción usa URL relativa (mismo servidor); en local usa localhost
+const API_URL = (window.location.hostname === '127.0.0.1' || window.location.hostname === 'localhost')
+    ? 'http://127.0.0.1:8000'
+    : '';
 
 const api = {
     // Realizar petición
