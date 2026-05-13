@@ -47,9 +47,7 @@ def _db_row_to_product(p: Product) -> dict:
 
 
 def sync_excel_to_db(db: Session):
-    """Importa todos los productos del Excel a la BD (solo si está vacía)"""
-    if db.query(Product).count() > 0:
-        return
+    """Importa productos del Excel a la BD (agrega los que falten)"""
     df = load_excel_products()
     if df.empty:
         print("⚠ No se pudo sincronizar Excel → DB: Excel vacío")
