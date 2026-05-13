@@ -52,30 +52,34 @@ def sync_excel_to_db(db: Session):
     if df.empty:
         print("⚠ No se pudo sincronizar Excel → DB: Excel vacío")
         return
+    # Obtener todos los SAP codes existentes en una sola consulta
+    existing_saps = set(r[0] for r in db.query(Product.sap_code).all())
     count = 0
     for _, row in df.iterrows():
         sap = str(row.get('sap_code', '')).strip()
-        if not sap:
+        if not sap or sap in existing_saps:
             continue
-        exists = db.query(Product).filter(Product.sap_code == sap).first()
-        if not exists:
-            db.add(Product(
-                sap_code=sap,
-                description=str(row.get('description', '')),
-                material_type=str(row.get('material_type', '')),
-                almacen=str(row.get('almacen', '')),
-                medida=str(row.get('medida', '')),
-                calibre=float(row.get('calibre', 0) or 0),
-                largo_mm=int(row.get('largo_mm', 0) or 0),
-                ancho_mm=int(row.get('ancho_mm', 0) or 0),
-                alto_mm=int(row.get('alto_mm', 0) or 0),
-                kg_por_paquete=float(row.get('kg_por_paquete', 0) or 0),
-                peso_pieza_kg=0,
-                piezas_por_paquete=1,
-            ))
-            count += 1
-    db.commit()
-    print(f"✓ {count} productos sincronizados de Excel → DB")
+        db.add(Product(
+            sap_code=sap,
+            description=str(row.get('description', '')),
+            material_type=str(row.get('material_type', '')),
+            almacen=str(row.get('almacen', '')),
+            medida=str(row.get('medida', '')),
+            calibre=float(row.get('calibre', 0) or 0),
+            largo_mm=int(row.get('largo_mm', 0) or 0),
+            ancho_mm=int(row.get('ancho_mm', 0) or 0),
+            alto_mm=int(row.get('alto_mm', 0) or 0),
+            kg_por_paquete=float(row.get('kg_por_paquete', 0) or 0),
+            peso_pieza_kg=0,
+            piezas_por_paquete=1,
+        ))
+        existing_saps.add(sap)
+        count += 1
+    if count > 0:
+        db.commit()
+        print(f"✓ {count} productos sincronizados de Excel → DB")
+    else:
+        print("✓ Catálogo ya actualizado, sin productos nuevos")
 
 def load_excel_products():
     """Cargar productos desde el archivo Excel"""
