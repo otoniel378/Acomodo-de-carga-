@@ -250,9 +250,9 @@ def update_load(load_id: int, data: LoadUpdate, db: Session = Depends(get_db)):
     
     # Actualizar materiales
     if data.items is not None:
-        # Limpiar items y placements existentes
-        db.query(LoadItem).filter(LoadItem.load_id == load_id).delete()
+        # Limpiar placements primero (FK a load_items), luego items
         db.query(Placement).filter(Placement.load_id == load_id).delete()
+        db.query(LoadItem).filter(LoadItem.load_id == load_id).delete()
         
         total_tons = 0
         total_tons_sobrantes = 0
