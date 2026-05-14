@@ -1,0 +1,8 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(git commit -m ' *)",
+      "PowerShell(\\(Get-Content \"c:\\\\Users\\\\OTONIEL\\\\Desktop\\\\Acomodo-de-carga-\\\\tyasa_modular\\\\frontend\\\\css\\\\styles.css\" | Measure-Object -Line\\).Lines)"
+    ]
+  }
+}

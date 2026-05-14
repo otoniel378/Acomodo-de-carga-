@@ -6,6 +6,39 @@
     <link rel="stylesheet" href="css/styles.css">
 </head>
 <body>
+
+<!-- ==================== LOGIN OVERLAY ==================== -->
+<div id="loginOverlay">
+    <div class="login-bg" id="loginBg"></div>
+    <div class="login-particles" id="loginParticles"></div>
+    <div class="login-card">
+        <div class="login-logo">
+            <img src="../imagenes/logotyasacar.png" alt="TYASA"
+                 onerror="this.style.opacity='0'">
+        </div>
+        <div class="login-subtitle">Sistema de Acomodo de Carga</div>
+        <div class="login-divider"></div>
+        <form id="loginForm" autocomplete="off">
+            <div class="login-field">
+                <input type="text" id="loginUser" placeholder=" " autocomplete="off">
+                <label for="loginUser">Usuario</label>
+                <div class="login-field-line"></div>
+            </div>
+            <div class="login-field">
+                <input type="password" id="loginPass" placeholder=" " autocomplete="new-password">
+                <label for="loginPass">Contraseña</label>
+                <div class="login-field-line"></div>
+            </div>
+            <div class="login-error" id="loginError"></div>
+            <button type="submit" class="login-btn" id="loginBtn">
+                <span class="login-btn-text">Acceder</span>
+                <span class="login-btn-arrow">&#8594;</span>
+            </button>
+        </form>
+        <div class="login-footer">TYASA &middot; Log&iacute;stica Operativa</div>
+    </div>
+</div>
+
 <div class="app">
     <!-- ==================== LEFT PANEL ==================== -->
     <div class="panel">
@@ -841,6 +874,9 @@
     window.OrbitControls = OrbitControls;
     window.dispatchEvent(new Event("three-ready"));
 </script>
+
+<!-- Login Script (must load before app scripts) -->
+<script src="js/login.js"></script>
 
 <!-- App Scripts -->
 <script src="js/api.js"></script>
