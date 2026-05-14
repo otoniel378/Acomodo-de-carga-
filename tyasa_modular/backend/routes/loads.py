@@ -504,6 +504,7 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
             elements.append(Spacer(1, 20))
         
         # ==================== DISTRIBUCIÓN POR CAMAS ====================
+        elements.append(PageBreak())
         elements.append(Paragraph("Distribución por Camas (Vista Superior)", title_style))
         elements.append(Spacer(1, 10))
         
@@ -568,7 +569,7 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
 
                     # Tabla con columna Zona — primero Zona A, luego Zona B
                     bed_placements_sorted = sorted(bed_placements, key=lambda p: (0 if pkg_zona(p) == 'A' else 1, p.x))
-                    bed_data = [["#", "SAP", "Descripción", "Dimensiones", "Peso", "Cal", "Almacén", "Zona", "Pos X"]]
+                    bed_data = [["#", "SAP", "Descripción", "Dimensiones", "Peso", "Cal", "Almacén", "Zona"]]
                     row_zones = []  # 'A' o 'B' por fila de datos (sin contar encabezado)
                     for bidx, p in enumerate(bed_placements_sorted, 1):
                         item = next((i for i in load.items if i.id == p.load_item_id), None)
@@ -578,10 +579,10 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                             bed_data.append([str(bidx), str(item.sap_code)[:10], (item.description or "")[:28],
                                 f"{p.length_used:.0f}×{p.width_used:.0f}×{p.height_used:.0f}",
                                 f"{(item.kg_por_paquete or 0)/1000:.2f}", str(int(item.calibre)) if item.calibre else "—",
-                                item.almacen or "—", zona, f"{p.x:.0f}"])
+                                item.almacen or "—", zona])
 
                     if len(bed_data) > 1:
-                        bed_table = Table(bed_data, colWidths=[0.2*inch, 0.5*inch, 1.3*inch, 0.85*inch, 0.4*inch, 0.3*inch, 0.5*inch, 0.3*inch, 0.4*inch])
+                        bed_table = Table(bed_data, colWidths=[0.2*inch, 0.55*inch, 1.55*inch, 0.9*inch, 0.45*inch, 0.35*inch, 0.6*inch, 0.35*inch])
                         ts = [
                             ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#3b82f6")),
                             ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
@@ -634,7 +635,7 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
 
                     # Ordenar: primero Zona A, luego Zona B
                     bed_placements_sorted = sorted(bed_placements, key=lambda p: (0 if pkg_zona(p) == 'A' else 1, p.x))
-                    bed_data = [["#", "Clave SAP", "Descripción", "Dimensiones (mm)", "Peso (ton)", "Calibre", "Almacén", "Zona", "Ubicación"]]
+                    bed_data = [["#", "Clave SAP", "Descripción", "Dimensiones (mm)", "Peso (ton)", "Calibre", "Almacén", "Zona"]]
                     row_zones = []
                     for idx, p in enumerate(bed_placements_sorted, 1):
                         item = next((i for i in load.items if i.id == p.load_item_id), None)
@@ -643,13 +644,12 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
                             row_zones.append(zona)
                             dims = f"{p.length_used:.0f} × {p.width_used:.0f} × {p.height_used:.0f}"
                             peso = f"{(item.kg_por_paquete or 0) / 1000:.3f}"
-                            pos = f"X:{p.x:.0f}, Z:{p.z:.0f}"
                             calibre_val = str(int(item.calibre)) if item.calibre and item.calibre > 0 else "—"
                             almacen_val = item.almacen or "—"
-                            bed_data.append([str(idx), str(item.sap_code), (item.description or "")[:30], dims, peso, calibre_val, almacen_val, zona, pos])
+                            bed_data.append([str(idx), str(item.sap_code), (item.description or "")[:30], dims, peso, calibre_val, almacen_val, zona])
 
                     if len(bed_data) > 1:
-                        bed_table = Table(bed_data, colWidths=[0.2*inch, 0.5*inch, 1.5*inch, 0.9*inch, 0.45*inch, 0.35*inch, 0.45*inch, 0.3*inch, 0.65*inch])
+                        bed_table = Table(bed_data, colWidths=[0.2*inch, 0.55*inch, 1.7*inch, 0.95*inch, 0.5*inch, 0.4*inch, 0.5*inch, 0.35*inch])
                         hdr_color = colors.HexColor("#22c55e" if is_dual and plat_num == 2 else "#3b82f6")
                         ts = [
                             ('BACKGROUND', (0, 0), (-1, 0), hdr_color),
@@ -668,123 +668,6 @@ def export_pdf(load_id: int, db: Session = Depends(get_db)):
 
                     elements.append(Spacer(1, 15))
         
-        # ==================== LISTA COMPLETA DE MATERIALES ====================
-        elements.append(PageBreak())
-        elements.append(Paragraph("Lista Completa de Materiales", title_style))
-        elements.append(Spacer(1, 5))
-        elements.append(Paragraph(
-            "A continuación se presenta el listado completo de todos los materiales cargados, "
-            "incluyendo su ubicación en el camión. Los materiales están organizados por clave SAP "
-            "y muestran las dimensiones del paquete, peso, calibre, almacén y la cama asignada.",
-            small_style
-        ))
-        elements.append(Spacer(1, 10))
-        
-        # Tabla completa con todas las columnas (incluyendo Plana para Full)
-        if is_dual:
-            full_data = [["#", "Clave SAP", "Descripción", "Dimensiones (mm)", "Peso (ton)", "Calibre", "Almacén", "Plana", "Cama", "Posición"]]
-        else:
-            full_data = [["#", "Clave SAP", "Descripción", "Dimensiones (mm)", "Peso (ton)", "Calibre", "Almacén", "Cama", "Posición"]]
-        
-        global_idx = 1
-        # Ordenar por plana, cama, x, z
-        sorted_placements = sorted(placements, key=lambda x: (getattr(x, 'platform', 1), x.bed_number, x.x, x.z))
-        for p in sorted_placements:
-            item = next((i for i in load.items if i.id == p.load_item_id), None)
-            if item:
-                dims = f"{p.length_used:.0f}×{p.width_used:.0f}×{p.height_used:.0f}"
-                peso = f"{(item.kg_por_paquete or 0) / 1000:.3f}"
-                pos = f"X:{p.x:.0f}, Z:{p.z:.0f}"
-                calibre_val = str(int(item.calibre)) if item.calibre and item.calibre > 0 else "—"
-                almacen_val = item.almacen or "—"
-                plat_num = getattr(p, 'platform', 1)
-                
-                if is_dual:
-                    full_data.append([
-                        str(global_idx),
-                        str(item.sap_code),
-                        (item.description or "")[:28],
-                        dims,
-                        peso,
-                        calibre_val,
-                        almacen_val,
-                        str(plat_num),
-                        str(p.bed_number),
-                        pos
-                    ])
-                else:
-                    full_data.append([
-                        str(global_idx),
-                        str(item.sap_code),
-                        (item.description or "")[:30],
-                        dims,
-                        peso,
-                        calibre_val,
-                        almacen_val,
-                        str(p.bed_number),
-                        pos
-                    ])
-                global_idx += 1
-        
-        if len(full_data) > 1:
-            if is_dual:
-                full_table = Table(full_data, colWidths=[0.22*inch, 0.45*inch, 1.4*inch, 0.95*inch, 0.45*inch, 0.35*inch, 0.45*inch, 0.3*inch, 0.3*inch, 0.65*inch])
-            else:
-                full_table = Table(full_data, colWidths=[0.25*inch, 0.5*inch, 1.6*inch, 1.0*inch, 0.5*inch, 0.4*inch, 0.5*inch, 0.35*inch, 0.7*inch])
-            full_table.setStyle(TableStyle([
-                ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#1e40af")),
-                ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-                ('FONTSIZE', (0, 0), (-1, -1), 6),
-                ('GRID', (0, 0), (-1, -1), 0.5, colors.grey),
-                ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor("#f3f4f6")]),
-                ('LEFTPADDING', (0, 0), (-1, -1), 2),
-                ('RIGHTPADDING', (0, 0), (-1, -1), 2),
-            ]))
-            elements.append(full_table)
-        
-        # Resumen final
-        elements.append(Spacer(1, 20))
-        elements.append(Paragraph("Resumen de Carga", heading_style))
-        
-        total_weight = sum((next((i.kg_por_paquete for i in load.items if i.id == p.load_item_id), 0) or 0) for p in placements)
-        
-        # Contar camas usadas total
-        total_beds_used = len(set((getattr(p, 'platform', 1), p.bed_number) for p in placements))
-        
-        summary_data = [
-            ["Total de paquetes:", str(len(placements))],
-            ["Planas/Transportes:", str(num_platforms)],
-        ]
-        
-        if is_dual:
-            for plat in range(1, num_platforms + 1):
-                p_count = platform_packages.get(plat, 0)
-                p_weight = platform_weights.get(plat, 0)
-                summary_data.append([f"Plana {plat}:", f"{p_count} paq · {p_weight/1000:.2f} t"])
-        
-        summary_data.extend([
-            ["Camas utilizadas:", str(total_beds_used)],
-            ["Peso total materiales:", f"{total_weight/1000:.2f} toneladas"],
-            ["Aditamentos:", f"{load.total_aditamentos_kg:.1f} kg"],
-            ["Peso total carga:", f"{(total_weight + (load.total_aditamentos_kg or 0))/1000:.2f} toneladas"],
-        ])
-        
-        if truck:
-            capacidad_total = truck.max_payload_kg * num_platforms
-            summary_data.append(["Capacidad total:", f"{capacidad_total/1000:.0f} toneladas"])
-            disponible = capacidad_total - total_weight - (load.total_aditamentos_kg or 0)
-            summary_data.append(["Disponible:", f"{disponible/1000:.2f} toneladas"])
-        
-        summary_table = Table(summary_data, colWidths=[2*inch, 2.5*inch])
-        summary_table.setStyle(TableStyle([
-            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 10),
-            ('ALIGN', (1, 0), (1, -1), 'LEFT'),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
-        ]))
-        elements.append(summary_table)
         
         doc.build(elements)
         

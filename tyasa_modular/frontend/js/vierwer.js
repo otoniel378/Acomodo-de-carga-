@@ -708,14 +708,11 @@ function draw2D(bedNum) {
         const ph = p.width_used * scale;
 
         if (isZoneB) {
-            // Zona B: fondo ámbar, borde ámbar intenso
-            ctx.fillStyle = '#92400e' + 'dd';
-            ctx.fillRect(px, py, pw, ph);
-            // Capa de color calibre encima (más transparente)
-            ctx.fillStyle = color.hex + '55';
+            // Zona B: mismo color por calibre, borde ámbar para distinguir la zona
+            ctx.fillStyle = color.hex + 'dd';
             ctx.fillRect(px, py, pw, ph);
             ctx.strokeStyle = '#f59e0b';
-            ctx.lineWidth = 1.5;
+            ctx.lineWidth = 2;
         } else {
             // Zona A: color por calibre normal
             ctx.fillStyle = color.hex + 'dd';
