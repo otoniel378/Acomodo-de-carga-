@@ -235,19 +235,40 @@ def find_position(bed_placements, pkg_l, pkg_w, max_length, max_width, x_min=0, 
     return None
 
 
-def try_place(bed, pkg, max_l, max_w, x_min=0, x_max=None):
+def try_place(bed, pkg, max_l, max_w, x_min=0, x_max=None, prefer_zone_a=False):
     pkg_l = float(pkg["length"])
     pkg_w = float(pkg["width"])
-    
+
+    if x_max is None:
+        x_max = max_l
+
+    # Cuando prefer_zone_a=True y el rango cubre ambas zonas, intenta primero
+    # zona A (0-FRONTAL_ZONE) y solo si no cabe pasa a zona B.
+    # Esto evita que paquetes del mismo material queden uno adelante y otro atrás.
+    if prefer_zone_a and x_min == 0 and x_max > FRONTAL_ZONE:
+        for try_l, try_w, rotated in [(pkg_l, pkg_w, False), (pkg_w, pkg_l, True) if pkg_l != pkg_w else (None, None, None)]:
+            if try_l is None:
+                continue
+            pos = find_position(bed["placements"], try_l, try_w, max_l, max_w, 0, FRONTAL_ZONE)
+            if pos:
+                return pos[0], pos[1], rotated, try_l, try_w
+        for try_l, try_w, rotated in [(pkg_l, pkg_w, False), (pkg_w, pkg_l, True) if pkg_l != pkg_w else (None, None, None)]:
+            if try_l is None:
+                continue
+            pos = find_position(bed["placements"], try_l, try_w, max_l, max_w, FRONTAL_ZONE, x_max)
+            if pos:
+                return pos[0], pos[1], rotated, try_l, try_w
+        return None
+
     pos = find_position(bed["placements"], pkg_l, pkg_w, max_l, max_w, x_min, x_max)
     if pos:
         return pos[0], pos[1], False, pkg_l, pkg_w
-    
+
     if pkg_l != pkg_w:
         pos = find_position(bed["placements"], pkg_w, pkg_l, max_l, max_w, x_min, x_max)
         if pos:
             return pos[0], pos[1], True, pkg_w, pkg_l
-    
+
     return None
 
 
@@ -280,7 +301,7 @@ def create_new_bed(platform, pkg_height, is_overflow=False):
 
 def _fill_bed(placed_bed, pending, placements_db, load, platform,
               available_payload, MAX_L, MAX_W, x_min, x_max, current_weight,
-              not_placed_reasons, is_deferred_bed):
+              not_placed_reasons, is_deferred_bed, prefer_zone_a=False):
     """
     Rellena una cama con todos los paquetes restantes compatibles en altura y espacio.
     Usa múltiples pasadas: cada vez que se coloca un paquete, sus bordes crean nuevas
@@ -309,7 +330,7 @@ def _fill_bed(placed_bed, pending, placements_db, load, platform,
             # En modo libre no hay restricción de altura — solo peso y espacio físico
             if not free_mode and not bed_height_range_ok(placed_bed, fill_h, fill_cal):
                 continue
-            fill_res = try_place(placed_bed, fill_pkg, MAX_L, MAX_W, x_min, x_max)
+            fill_res = try_place(placed_bed, fill_pkg, MAX_L, MAX_W, x_min, x_max, prefer_zone_a=prefer_zone_a)
             if fill_res:
                 fx, fz, frot, fl, fw = fill_res
                 if float(placed_bed["base_y"]) + max(float(placed_bed["max_pkg_height"]), fill_h) <= MAX_TOTAL_HEIGHT:
@@ -365,7 +386,8 @@ def add_placement(result, bed, pkg, platform, placements_db, load, current_weigh
 # Función para procesar una zona (usada por Opt2)
 # =========================
 def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
-                 current_weight, available_payload, x_min, x_max, not_placed_reasons=None):
+                 current_weight, available_payload, x_min, x_max, not_placed_reasons=None,
+                 prefer_zone_a=False):
     """
     Procesa una zona específica (frontal o trasera) como una carga completa.
     
@@ -417,7 +439,7 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
                 continue
             if not free_mode and not bed_height_range_ok(bed, pkg_h, pkg_calibre):
                 continue
-            res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
+            res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max, prefer_zone_a=prefer_zone_a)
             if res:
                 x, z, rotated, l_used, w_used = res
                 if float(bed["base_y"]) + max(float(bed["max_pkg_height"]), pkg_h) <= MAX_TOTAL_HEIGHT:
@@ -436,7 +458,7 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
             if new_bed is None:
                 remaining.append(pkg)
                 continue
-            res = try_place(new_bed, pkg, MAX_L, MAX_W, x_min, x_max)
+            res = try_place(new_bed, pkg, MAX_L, MAX_W, x_min, x_max, prefer_zone_a=prefer_zone_a)
             if res:
                 x, z, rotated, l_used, w_used = res
                 placement = {
@@ -458,7 +480,8 @@ def process_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
             placed_bed, pending, placements_db, load, platform,
             available_payload, MAX_L, MAX_W, x_min, x_max,
             current_weight, not_placed_reasons,
-            is_deferred_bed=bool(pkg.get("is_deferred"))
+            is_deferred_bed=bool(pkg.get("is_deferred")),
+            prefer_zone_a=prefer_zone_a
         )
 
     return current_weight, not_placed, remaining, []
@@ -598,7 +621,8 @@ def process_rear_zone(packages, platforms, placements_db, load, MAX_L, MAX_W,
 # Procesar zona en Plana 2 (para Full)
 # =========================
 def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_W,
-                           current_weight, available_payload, x_min, x_max, not_placed_reasons=None):
+                           current_weight, available_payload, x_min, x_max, not_placed_reasons=None,
+                           prefer_zone_a=False):
     """
     Procesa paquetes en la PLANA 2 (paquetes normales, diferidos ya separados).
     RESPETA EL LÍMITE DE PESO POR PLATAFORMA.
@@ -643,7 +667,7 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
                 continue
             if not free_mode and not bed_height_range_ok(bed, pkg_h, pkg_calibre):
                 continue
-            res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
+            res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max, prefer_zone_a=prefer_zone_a)
             if res:
                 x, z, rotated, l_used, w_used = res
                 if float(bed["base_y"]) + max(float(bed["max_pkg_height"]), pkg_h) <= MAX_TOTAL_HEIGHT:
@@ -661,7 +685,7 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
             if new_bed is None:
                 remaining.append(pkg)
                 continue
-            res = try_place(new_bed, pkg, MAX_L, MAX_W, x_min, x_max)
+            res = try_place(new_bed, pkg, MAX_L, MAX_W, x_min, x_max, prefer_zone_a=prefer_zone_a)
             if res:
                 x, z, rotated, l_used, w_used = res
                 placement = {
@@ -680,9 +704,10 @@ def process_zone_platform2(packages, platforms, placements_db, load, MAX_L, MAX_
             placed_bed, pending, placements_db, load, platform,
             available_payload, MAX_L, MAX_W, x_min, x_max,
             current_weight, not_placed_reasons,
-            is_deferred_bed=bool(pkg.get("is_deferred"))
+            is_deferred_bed=bool(pkg.get("is_deferred")),
+            prefer_zone_a=prefer_zone_a
         )
-    
+
     return current_weight, not_placed, remaining, []
 
 
@@ -1102,9 +1127,11 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
         # =========================
 
         # Procesar PLANA 1 - SOLO paquetes normales
+        # prefer_zone_a=True: llena zona A (0-6m) primero antes de usar zona B
         current_weight, not_placed_1, remaining, deferred_1 = process_zone(
             packages_normales, platforms, placements_db, load, MAX_L, MAX_W,
-            current_weight, available_payload, 0, MAX_L, not_placed_reasons
+            current_weight, available_payload, 0, MAX_L, not_placed_reasons,
+            prefer_zone_a=True
         )
         not_placed_count += not_placed_1
         all_deferred.extend(deferred_1)
@@ -1113,7 +1140,8 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
         if is_dual and remaining and len(platforms) > 1:
             current_weight, not_placed_2, still_remaining, deferred_2 = process_zone_platform2(
                 remaining, platforms, placements_db, load, MAX_L, MAX_W,
-                current_weight, available_payload, 0, MAX_L, not_placed_reasons
+                current_weight, available_payload, 0, MAX_L, not_placed_reasons,
+                prefer_zone_a=True
             )
             not_placed_count += not_placed_2
             all_deferred.extend(deferred_2)
@@ -1173,7 +1201,9 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                 for x_min, x_max in zonas:
                     if placed:
                         break
-                    
+
+                    _pza = (x_min == 0 and x_max > FRONTAL_ZONE)  # prefer zone A only for full-truck range
+
                     # Buscar en camas existentes DE ABAJO HACIA ARRIBA (como los normales)
                     normal_beds = [b for b in platform["beds"] if not b.get("is_overflow", False)]
                     normal_beds_sorted = sorted(normal_beds, key=lambda b: b["number"])  # Más baja primero
@@ -1183,8 +1213,8 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                         # Verificar compatibilidad de altura
                         if not free_mode_def and not bed_height_range_ok(bed, pkg_h):
                             continue
-                        
-                        res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max)
+
+                        res = try_place(bed, pkg, MAX_L, MAX_W, x_min, x_max, prefer_zone_a=_pza)
                         if res:
                             x, z, rotated, l_used, w_used = res
                             if float(bed["base_y"]) + max(float(bed["max_pkg_height"]), pkg_h) <= MAX_TOTAL_HEIGHT:
@@ -1197,12 +1227,12 @@ def optimize_load(request: OptimizeRequest, db: Session = Depends(get_db)):
                                 placed = True
                                 print(f"[DEBUG] Diferido -> Plana {plat_num} Cama {bed['number']} zona ({x_min}-{x_max})", flush=True)
                                 break
-                    
+
                     # Si no cupo en camas existentes, crear nueva cama
                     if not placed:
                         new_bed = create_new_bed(platform, pkg_h, is_overflow=False)
                         if new_bed:
-                            res = try_place(new_bed, pkg, MAX_L, MAX_W, x_min, x_max)
+                            res = try_place(new_bed, pkg, MAX_L, MAX_W, x_min, x_max, prefer_zone_a=_pza)
                             if res:
                                 x, z, rotated, l_used, w_used = res
                                 placement = {
